@@ -1,0 +1,117 @@
+<!DOCTYPE html><html lang="zh-cn"><head><meta charset="utf-8"><meta name="X-UA-Compatible" content="IE=edge"><title> 优化UITableViewCell高度计算的那些事 · sunnyxx的技术博客</title><meta name="description" content="优化UITableViewCell高度计算的那些事 - sunnyxx"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="short icon" href="/favicon.ico"><link rel="stylesheet" href="/css/apollo.css"></head><body><header><a href="/" class="logo-link"><img src="/doge-logo.png"></a><ul class="nav nav-list"><li class="nav-list-item"><a href="/" target="_self" class="nav-list-link">BLOG</a></li><li class="nav-list-item"><a href="/archives/" target="_self" class="nav-list-link">ARCHIVE</a></li><li class="nav-list-item"><a href="http://weibo.com/1364395395/" target="_blank" class="nav-list-link">WEIBO</a></li><li class="nav-list-item"><a href="https://github.com/forkingdog" target="_blank" class="nav-list-link">GITHUB</a></li><li class="nav-list-item"><a href="/atom.xml" target="_self" class="nav-list-link">RSS</a></li></ul></header><section class="container"><div class="post"><article class="post-block"><h1 class="post-title">优化UITableViewCell高度计算的那些事</h1><div class="post-time">2015年5月17日</div><div class="post-content"><h1 id="我是前言"><a href="#我是前言" class="headerlink" title="我是前言"></a>我是前言</h1><p>这篇文章是我和我们团队最近对 <strong>UITableViewCell</strong> 利用 <strong>AutoLayout</strong> 自动高度计算和 <strong>UITableView</strong> 滑动优化的一个总结。<br>我们也在维护一个开源的扩展，<code>UITableView+FDTemplateLayoutCell</code>，让高度计算这个事情变的前所未有的简单，也受到了很多星星的支持，<a href="https://github.com/forkingdog/UITableView-FDTemplateLayoutCell" target="_blank" rel="external">github链接请戳我</a></p>
+<p>这篇总结你可以读到：</p>
+<ul>
+<li>UITableView高度计算和估算的机制</li>
+<li>不同iOS系统在高度计算上的差异</li>
+<li>iOS8 self-sizing cell</li>
+<li>UITableView+FDTemplateLayoutCell如何用一句话解决高度问题</li>
+<li>UITableView+FDTemplateLayoutCell中对RunLoop的使用技巧</li>
+</ul>
+<hr>
+<h1 id="UITableViewCell高度计算"><a href="#UITableViewCell高度计算" class="headerlink" title="UITableViewCell高度计算"></a>UITableViewCell高度计算</h1><h2 id="rowHeight"><a href="#rowHeight" class="headerlink" title="rowHeight"></a>rowHeight</h2><p><code>UITableView</code>是我们再熟悉不过的视图了，它的 <strong>delegate</strong> 和 <strong>data source</strong> 回调不知写了多少次，也不免遇到 UITableViewCell 高度计算的事。UITableView 询问 cell 高度有两种方式。<br>一种是针对所有 Cell 具有固定高度的情况，通过：</p>
+<figure class="highlight objc"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">self</span>.tableView.rowHeight = <span class="number">88</span>;</span><br></pre></td></tr></table></figure>
+<p>上面的代码指定了一个所有 cell 都是 88 高度的 UITableView，对于定高需求的表格，<strong>强烈建议</strong>使用这种（而非下面的）方式保证不必要的高度计算和调用。<code>rowHeight</code>属性的默认值是 44，所以一个空的 UITableView 显示成那个样子。</p>
+<p>另一种方式就是实现 UITableViewDelegate 中的：</p>
+<figure class="highlight objc"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">- (<span class="built_in">CGFloat</span>)tableView:(<span class="built_in">UITableView</span> *)tableView heightForRowAtIndexPath:(<span class="built_in">NSIndexPath</span> *)indexPath &#123;</span><br><span class="line">    <span class="comment">// return xxx</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>需要注意的是，实现了这个方法后，<code>rowHeight</code> 的设置将无效。所以，这个方法适用于具有多种 cell 高度的 UITableView。</p>
+<h2 id="estimatedRowHeight"><a href="#estimatedRowHeight" class="headerlink" title="estimatedRowHeight"></a>estimatedRowHeight</h2><p>这个属性 iOS7 就出现了， 文档是这么描述它的作用的：</p>
+<blockquote>
+<p>If the table contains variable height rows, it might be expensive to calculate all their heights when the table loads. Using estimation allows you to defer some of the cost of geometry calculation from load time to scrolling time.</p>
+</blockquote>
+<p>恩，听上去蛮靠谱的。我们知道，UITableView 是个 UIScrollView，就像平时使用 UIScrollView 一样，加载时指定 <code>contentSize</code> 后它才能根据自己的 bounds、contentInset、contentOffset 等属性共同决定是否可以滑动以及滚动条的长度。而 UITableView 在一开始并不知道自己会被填充多少内容，于是询问 data source 个数和创建 cell，同时询问 delegate 这些 cell 应该显示的高度，这就造成它在加载的时候浪费了多余的计算在<strong>屏幕外边</strong>的 cell 上。和上面的 <code>rowHeight</code> 很类似，设置这个估算高度有两种方法：  </p>
+<figure class="highlight objc"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">self</span>.tableView.estimatedRowHeight = <span class="number">88</span>;</span><br><span class="line"><span class="comment">// or</span></span><br><span class="line">- (<span class="built_in">CGFloat</span>)tableView:(<span class="built_in">UITableView</span> *)tableView estimatedHeightForRowAtIndexPath:(<span class="built_in">NSIndexPath</span> *)indexPath &#123;</span><br><span class="line">    <span class="comment">// return xxx</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>有所不同的是，即使面对种类不同的 cell，我们依然可以使用简单的 <code>estimatedRowHeight</code> 属性赋值，只要<strong>整体估算值接近</strong>就可以，比如大概有一半 cell 高度是 44， 一半 cell 高度是 88， 那就可以估算一个 66，基本符合预期。  </p>
+<p>说完了估算高度的基本使用，可以开始吐槽了：  </p>
+<ol>
+<li>设置估算高度后，contentSize.height 根据“cell估算值 x cell个数”计算，这就导致滚动条的大小处于不稳定的状态，contentSize 会随着滚动从估算高度慢慢替换成真实高度，肉眼可见滚动条突然变化甚至“跳跃”。</li>
+<li>若是有设计不好的下拉刷新或上拉加载控件，或是 KVO 了 contentSize 或 contentOffset 属性，有可能使表格滑动时跳动。</li>
+<li>估算高度设计初衷是好的，让加载速度更快，那凭啥要去侵害滑动的流畅性呢，用户可能对进入页面时多零点几秒加载时间感觉不大，但是滑动时实时计算高度带来的卡顿是明显能体验到的，个人觉得还不如一开始都算好了呢（iOS8更过分，即使都算好了也会边划边计算）</li>
+</ol>
+<hr>
+<h1 id="iOS8-self-sizing-cell"><a href="#iOS8-self-sizing-cell" class="headerlink" title="iOS8 self-sizing cell"></a>iOS8 self-sizing cell</h1><p>具有动态高度内容的 cell 一直是个头疼的问题，比如聊天气泡的 cell， frame 布局时代通常是用数据内容反算高度：</p>
+<figure class="highlight objc"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">CGFloat</span> height = textHeightWithFont() + imageHeight + topMargin + bottomMargin + ...;</span><br></pre></td></tr></table></figure>
+<p>供 UITableViewDelegate 调用时很可能是个 cell 的类方法：</p>
+<figure class="highlight objc"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="class"><span class="keyword">@interface</span> <span class="title">BubbleCell</span> : <span class="title">UITableViewCell</span></span></span><br><span class="line">+ (<span class="built_in">CGFloat</span>)heightWithEntity:(<span class="keyword">id</span>)entity;</span><br><span class="line"><span class="keyword">@end</span></span><br></pre></td></tr></table></figure>
+<p>各种魔法 margin 加上耦合了屏幕宽度。</p>
+<p>AutoLayout 时代好了不少，提供了<code>-systemLayoutSizeFittingSize:</code>的 API，在 contentView 中设置约束后，就能计算出准确的值；缺点是计算速度肯定没有手算快，而且这是个实例方法，需要维护专门为计算高度而生的 <code>template layout cell</code>，它还要求使用者对约束设置的比较熟练，要保证 contentView 内部上下左右所有方向都有约束支撑，设置不合理的话计算的高度就成了0。  </p>
+<p>这里还不得不提到一个 UILabel 的蛋疼问题，当 UILabel 行数大于0时，需要指定 <code>preferredMaxLayoutWidth</code> 后它才知道自己什么时候该折行。这是个“鸡生蛋蛋生鸡”的问题，因为 UILabel 需要知道 superview 的宽度才能折行，而 superview 的宽度还依仗着子 view 宽度的累加才能确定。这个问题好像到 iOS8 才能够自动解决（不过我们找到了解决方案）</p>
+<p>回到正题，iOS8 WWDC 中推出了 <code>self-sizing cell</code> 的概念，旨在让 cell 自己负责自己的高度计算，使用 frame layout 和 auto layout 都可以享受到：</p>
+<p><img src="http://ww3.sinaimg.cn/mw690/51530583jw1es3hwpsb71j20pe0f2ab4.jpg" width="320"></p>
+<p>这个特性首先要求是 iOS8，要是最低支持的系统版本小于8的话，还得针对老版本单写套老式的算高（囧），不过用的 API 到不是新面孔：  </p>
+<figure class="highlight objc"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">self</span>.tableView.estimatedRowHeight = <span class="number">213</span>;</span><br><span class="line"><span class="keyword">self</span>.tableView.rowHeight = <span class="built_in">UITableViewAutomaticDimension</span>;</span><br></pre></td></tr></table></figure>
+<p>这里又不得不吐槽了，自动计算 rowHeight 跟 estimatedRowHeight 到底是有什么仇，如果不加上估算高度的设置，自动算高就失效了- -<br>PS：iOS8 系统中 rowHeight 的默认值已经设置成了 UITableViewAutomaticDimension，所以第二行代码可以省略。  </p>
+<p>问题：  </p>
+<ol>
+<li>这个自动算高在 push 到下一个页面或者转屏时会出现高度特别诡异的情况，不过现在的版本修复了。  </li>
+<li>求一个能让最低支持 iOS8 的公司- -</li>
+</ol>
+<hr>
+<h1 id="iOS8抽风的算高机制"><a href="#iOS8抽风的算高机制" class="headerlink" title="iOS8抽风的算高机制"></a>iOS8抽风的算高机制</h1><p>相同的代码在 iOS7 和 iOS8 上滑动顺畅程度完全不同，iOS8 莫名奇妙的卡。很大一部分原因是 iOS8 上的算高机制大不相同，这是我做的小测试：  </p>
+<p><img src="http://ww1.sinaimg.cn/mw690/51530583jw1es3j7avlelj20w4084jsv.jpg" width="640"></p>
+<p>研究后发现这么多次额外计算有下面的原因：</p>
+<ol>
+<li>不开启高度估算时，UITableView 上来就要对所有 cell 调用算高来确定 contentSize</li>
+<li><code>dequeueReusableCellWithIdentifier:forIndexPath:</code> 相比不带 “forIndexPath” 的版本会多调用一次高度计算</li>
+<li>iOS7 计算高度后有”缓存“机制，不会重复计算；而 iOS8 不论何时都会重新计算 cell 高度</li>
+</ol>
+<p>iOS8 把高度计算搞成这个样子，从 WWDC 也倒是能找到点解释，cell 被认为随时都可能改变高度（如从设置中调整动态字体大小），所以每次滑动出来后都要重新计算高度。  </p>
+<p>说了这么多，究竟有没有既能省去算高烦恼，又能保证顺畅的滑动，还能支持 iOS6+ 的一站式解决方案呢？</p>
+<hr>
+<h1 id="UITableView-FDTemplateLayoutCell"><a href="#UITableView-FDTemplateLayoutCell" class="headerlink" title="UITableView+FDTemplateLayoutCell"></a>UITableView+FDTemplateLayoutCell</h1><p>使用 <code>UITableView+FDTemplateLayoutCell</code> 无疑是解决算高问题的最佳实践之一，既有 iOS8 self-sizing 功能简单的 API，又可以达到 iOS7 流畅的滑动效果，还保持了最低支持 iOS6。<br>使用起来大概是这样：  </p>
+<figure class="highlight objc"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">#import <span class="meta-string">&lt;UITableView+FDTemplateLayoutCell.h&gt;</span></span></span><br><span class="line">- (<span class="built_in">CGFloat</span>)tableView:(<span class="built_in">UITableView</span> *)tableView heightForRowAtIndexPath:(<span class="built_in">NSIndexPath</span> *)indexPath &#123;</span><br><span class="line">    <span class="keyword">return</span> [tableView fd_heightForCellWithIdentifier:<span class="string">@"identifer"</span> cacheByIndexPath:indexPath configuration:^(<span class="keyword">id</span> cell) &#123;</span><br><span class="line">        <span class="comment">// 配置 cell 的数据源，和 "cellForRow" 干的事一致，比如：</span></span><br><span class="line">        cell.entity = <span class="keyword">self</span>.feedEntities[indexPath.row];</span><br><span class="line">    &#125;];</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>写完上面的代码后，你就已经使用到了：  </p>
+<ul>
+<li><strong>和每个 UITableViewCell ReuseID 一一对应的 template layout cell</strong><br>这个 cell 只为了参加高度计算，不会真的显示到屏幕上；它通过 UITableView 的 <code>-dequeueCellForReuseIdentifier:</code> 方法 lazy 创建并保存，所以要求这个 ReuseID 必须已经被注册到了 UITableView 中，也就是说，要么是 Storyboard 中的原型 cell，要么就是使用了 UITableView 的 <code>-registerClass:forCellReuseIdentifier:</code> 或 <code>-registerNib:forCellReuseIdentifier:</code>其中之一的注册方法。  </li>
+<li><strong>根据 autolayout 约束自动计算高度</strong><br>使用了系统在 iOS6 就提供的 API：<code>-systemLayoutSizeFittingSize:</code></li>
+<li><strong>根据 index path 的一套高度缓存机制</strong><br>计算出的高度会自动进行缓存，所以滑动时每个 cell 真正的高度计算只会发生一次，后面的高度询问都会命中缓存，减少了非常可观的多余计算。</li>
+<li><strong>自动的缓存失效机制</strong><br>无须担心你数据源的变化引起的缓存失效，当调用如<code>-reloadData</code>，<code>-deleteRowsAtIndexPaths:withRowAnimation:</code>等任何一个触发 UITableView 刷新机制的方法时，已有的高度缓存将以<strong>最小的代价</strong>执行失效。如删除一个 indexPath 为 [0:5] 的 cell 时，[0:0] ~ [0:4] 的高度缓存不受影响，而 [0:5] 后面所有的缓存值都向前移动一个位置。自动缓存失效机制对 UITableView 的 9 个公有 API 都进行了分别的处理，以保证没有一次多余的高度计算。  </li>
+<li><strong>预缓存机制</strong><br>预缓存机制将在 UITableView 没有滑动的空闲时刻执行，计算和缓存那些还没有显示到屏幕中的 cell，整个缓存过程完全没有感知，这使得完整列表的高度计算既没有发生在加载时，又没有发生在滑动时，同时保证了加载速度和滑动流畅性，下文会着重讲下这块的实现原理。</li>
+</ul>
+<p>我们在设计这个工具的 API 时斟酌了非常长的时间，既要保证功能的强大，也要保证接口的精简，一行调用背后隐藏着很多功能。</p>
+<p>这一套缓存机制能对滑动起多大影响呢？除了肉眼能明显的感知到外，我还做了个小测试：<br>一个有 54 个内容和高度不同 cell 的 table view，从头滑动到尾，再从尾滑动到头，iOS8 系统下，iPhone6，使用 <code>Time Profiler</code> 监测算高函数所花费的时间：  </p>
+<p>未使用缓存API、未使用估算，共花费 877 ms：<br><img src="http://ww3.sinaimg.cn/mw690/51530583jw1es7f5l357cj213k0g07eh.jpg" width="640"></p>
+<p>使用缓存API、开启估算，共花费 77 ms：<br><img src="http://ww2.sinaimg.cn/mw690/51530583jw1es7f5lefy3j21440hsgw8.jpg" width="640"></p>
+<p>测试数据的精度先不管，从量级上就差了一个数量级，说实话自己也没想到差距有这么大- -  </p>
+<p>同时，工具也顺手解决了<code>-preferredMaxLayoutWidth</code>的问题，在计算高度前向 contentView 加了一条和 table view 宽度相同的宽度约束，强行让 contentView 内部的控件知道了自己父 view 的宽度，再反算自己被外界约束的宽度，破除“鸡生蛋蛋生鸡”的问题，这里比较 tricky，就不展开说了。下面说说利用 RunLoop 预缓存的实现。</p>
+<hr>
+<h1 id="利用RunLoop空闲时间执行预缓存任务"><a href="#利用RunLoop空闲时间执行预缓存任务" class="headerlink" title="利用RunLoop空闲时间执行预缓存任务"></a>利用RunLoop空闲时间执行预缓存任务</h1><p>FDTemplateLayoutCell 的高度预缓存是一个优化功能，它要求页面处于<strong>空闲</strong>状态时才执行计算，当用户正在滑动列表时显然不应该执行计算任务影响滑动体验。<br>一般来说，这个功能要耦合 UITableView 的滑动状态才行，但这种实现十分不优雅且可能破坏外部的 delegate 结构，但好在我们还有<code>RunLoop</code>这个工具，了解它的运行机制后，可以用很简单的代码实现上面的功能。  </p>
+<h2 id="空闲RunLoopMode"><a href="#空闲RunLoopMode" class="headerlink" title="空闲RunLoopMode"></a>空闲RunLoopMode</h2><p>在曾经的 RunLoop 线下分享会（<a href="http://yun.baidu.com/share/link?shareid=2268593032&amp;uk=2885973690" target="_blank" rel="external">视频可戳</a>）中介绍了 RunLoopMode 的概念。<br>当用户正在滑动 UIScrollView 时，RunLoop 将切换到 <code>UITrackingRunLoopMode</code> 接受滑动手势和处理滑动事件（包括减速和弹簧效果），此时，其他 Mode （除 NSRunLoopCommonModes 这个组合 Mode）下的事件将全部暂停执行，来保证滑动事件的优先处理，这也是 iOS 滑动顺畅的重要原因。<br>当 UI 没在滑动时，默认的 Mode 是 <code>NSDefaultRunLoopMode</code>（同 CF 中的 kCFRunLoopDefaultMode），同时也是 CF 中定义的 “空闲状态 Mode”。当用户啥也不点，此时也没有什么网络 IO 时，就是在这个 Mode 下。</p>
+<h2 id="用RunLoopObserver找准时机"><a href="#用RunLoopObserver找准时机" class="headerlink" title="用RunLoopObserver找准时机"></a>用RunLoopObserver找准时机</h2><p>注册 RunLoopObserver 可以观测当前 RunLoop 的运行状态，并在状态机切换时收到通知：  </p>
+<ol>
+<li>RunLoop开始</li>
+<li>RunLoop即将处理Timer</li>
+<li>RunLoop即将处理Source</li>
+<li>RunLoop即将进入休眠状态</li>
+<li>RunLoop即将从休眠状态被事件唤醒</li>
+<li>RunLoop退出</li>
+</ol>
+<p>因为“预缓存高度”的任务需要在最无感知的时刻进行，所以应该同时满足：</p>
+<ol>
+<li>RunLoop 处于“空闲”状态 Mode</li>
+<li>当这一次 RunLoop 迭代处理完成了所有事件，马上要休眠时</li>
+</ol>
+<p>使用 CF 的带 block 版本的注册函数可以让代码更简洁：  </p>
+<figure class="highlight objc"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">CFRunLoopRef</span> runLoop = <span class="built_in">CFRunLoopGetCurrent</span>();</span><br><span class="line"><span class="built_in">CFStringRef</span> runLoopMode = k<span class="built_in">CFRunLoopDefaultMode</span>;</span><br><span class="line"><span class="built_in">CFRunLoopObserverRef</span> observer = <span class="built_in">CFRunLoopObserverCreateWithHandler</span></span><br><span class="line">(k<span class="built_in">CFAllocatorDefault</span>, k<span class="built_in">CFRunLoopBeforeWaiting</span>, <span class="literal">true</span>, <span class="number">0</span>, ^(<span class="built_in">CFRunLoopObserverRef</span> observer, <span class="built_in">CFRunLoopActivity</span> _) &#123;</span><br><span class="line">    <span class="comment">// TODO here</span></span><br><span class="line">&#125;);</span><br><span class="line"><span class="built_in">CFRunLoopAddObserver</span>(runLoop, observer, runLoopMode);</span><br></pre></td></tr></table></figure>
+<p>在其中的 TODO 位置，就可以开始任务的收集和分发了，当然，不能忘记适时的移除这个 observer  </p>
+<h2 id="分解成多个RunLoop-Source任务"><a href="#分解成多个RunLoop-Source任务" class="headerlink" title="分解成多个RunLoop Source任务"></a>分解成多个RunLoop Source任务</h2><p>假设列表有 20 个 cell，加载后展示了前 5 个，那么开启估算后 table view 只计算了这 5 个的高度，此时剩下 15 个就是“预缓存”的任务，而我们并不希望这 15 个计算任务在同一个 RunLoop 迭代中同步执行，这样会卡顿 UI，所以应该把它们<strong>分别分解</strong>到 15 个 RunLoop 迭代中执行，这时就需要手动向 RunLoop 中添加 Source 任务（由应用发起和处理的是 Source 0 任务）<br>Foundation 层没对 RunLoopSource 提供直接构建的 API，但是提供了一个间接的、既熟悉又陌生的 API：</p>
+<figure class="highlight objc"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">- (<span class="keyword">void</span>)performSelector:(SEL)aSelector</span><br><span class="line">               onThread:(<span class="built_in">NSThread</span> *)thr</span><br><span class="line">             withObject:(<span class="keyword">id</span>)arg</span><br><span class="line">          waitUntilDone:(<span class="built_in">BOOL</span>)wait</span><br><span class="line">                  modes:(<span class="built_in">NSArray</span> *)array;</span><br></pre></td></tr></table></figure>
+<p>这个方法将创建一个 Source 0 任务，分发到指定线程的 RunLoop 中，在给定的 Mode 下执行，若指定的 RunLoop 处于休眠状态，则唤醒它处理事件，简单来说就是“睡你xx，起来嗨！”<br>于是，我们用一个可变数组装载当前所有需要“预缓存”的 index path，每个 RunLoopObserver 回调时都把第一个任务拿出来分发:</p>
+<figure class="highlight objc"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">NSMutableArray</span> *mutableIndexPathsToBePrecached = <span class="keyword">self</span>.fd_allIndexPathsToBePrecached.mutableCopy;</span><br><span class="line"><span class="built_in">CFRunLoopObserverRef</span> observer = <span class="built_in">CFRunLoopObserverCreateWithHandler</span>(k<span class="built_in">CFAllocatorDefault</span>, k<span class="built_in">CFRunLoopBeforeWaiting</span>, <span class="literal">true</span>, <span class="number">0</span>, ^(<span class="built_in">CFRunLoopObserverRef</span> observer, <span class="built_in">CFRunLoopActivity</span> _) &#123;</span><br><span class="line">    <span class="keyword">if</span> (mutableIndexPathsToBePrecached.count == <span class="number">0</span>) &#123;</span><br><span class="line">        <span class="built_in">CFRunLoopRemoveObserver</span>(runLoop, observer, runLoopMode);</span><br><span class="line">        <span class="built_in">CFRelease</span>(observer); <span class="comment">// 注意释放，否则会造成内存泄露</span></span><br><span class="line">        <span class="keyword">return</span>;</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="built_in">NSIndexPath</span> *indexPath = mutableIndexPathsToBePrecached.firstObject;</span><br><span class="line">    [mutableIndexPathsToBePrecached removeObject:indexPath];</span><br><span class="line">    [<span class="keyword">self</span> performSelector:<span class="keyword">@selector</span>(fd_precacheIndexPathIfNeeded:)</span><br><span class="line">                 onThread:[<span class="built_in">NSThread</span> mainThread]</span><br><span class="line">               withObject:indexPath</span><br><span class="line">            waitUntilDone:<span class="literal">NO</span></span><br><span class="line">                    modes:@[<span class="built_in">NSDefaultRunLoopMode</span>]];</span><br><span class="line">&#125;);</span><br></pre></td></tr></table></figure>
+<p>这样，每个任务都被分配到下个“空闲” RunLoop 迭代中执行，其间但凡有滑动事件开始，Mode 切换成 UITrackingRunLoopMode，所有的“预缓存”任务的分发和执行都会自动暂定，最大程度保证滑动流畅。  </p>
+<p>PS: 预缓存功能因为下拉刷新的冲突和不明显的收益已经废弃</p>
+<hr>
+<h1 id="开始使用UITableView-FDTemplateLayoutCell"><a href="#开始使用UITableView-FDTemplateLayoutCell" class="headerlink" title="开始使用UITableView+FDTemplateLayoutCell"></a>开始使用UITableView+FDTemplateLayoutCell</h1><p>如果你觉得这个工具能帮得到你，整合到工程也十分简单。<br>使用 cocoapods：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">pod search UITableView+FDTemplateLayoutCell</span><br></pre></td></tr></table></figure>
+<p>写这篇文章时的最新版本为 1.2，去除了前一个版本的黑魔法，增加了预缓存功能。<br>欢迎使用和支持这个工具，有 bug 请随时反馈哦~<br>再复习下 github 地址： <a href="https://github.com/forkingdog/UITableView-FDTemplateLayoutCell" target="_blank" rel="external">https://github.com/forkingdog/UITableView-FDTemplateLayoutCell</a>  </p>
+<p><img src="https://cloud.githubusercontent.com/assets/219689/7244961/4209de32-e816-11e4-87bc-b161c442d348.png" width="640"></p>
+</div></article></div></section><footer><div class="paginator"><a href="/2015/06/07/fullscreen-pop-gesture/" class="prev">上一篇</a><a href="/2015/05/07/multiple-char/" class="next">下一篇</a></div><div data-thread-key="2015/05/17/cell-height-calculation/" data-title="优化UITableViewCell高度计算的那些事" data-url="http://blog.sunnyxx.com/2015/05/17/cell-height-calculation/" data-author-key="1" class="ds-thread"></div><script>var duoshuoQuery = {short_name:"sunnyxx"};
+(function() {
+    var ds = document.createElement('script');
+    ds.type = 'text/javascript';ds.async = true;
+    ds.src = (document.location.protocol == 'https:' ? 'https:' : 'http:') + '//static.duoshuo.com/embed.js';
+    ds.charset = 'UTF-8';
+    (document.getElementsByTagName('head')[0] 
+     || document.getElementsByTagName('body')[0]).appendChild(ds);
+})();
+
+</script><div class="copyright"><p>原创文章，版权声明：署名-非商业性使用-相同方式共享 2.5 </p><p>对博主感兴趣？微信订阅号中关注 sunnyxx 或关注微博<a href="http://weibo.com/1364395395/">@我就叫Sunny怎么了</a></p><p>© 2015 - 2016  <a href="http://blog.sunnyxx.com">sunnyxx</a> | Powered by Hexo</p></div></footer></body></html>

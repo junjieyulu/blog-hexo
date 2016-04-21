@@ -1,0 +1,34 @@
+<!DOCTYPE html><html lang="zh-cn"><head><meta charset="utf-8"><meta name="X-UA-Compatible" content="IE=edge"><title> 0代码隐藏GroupedTableView上边多余的间隔 · sunnyxx的技术博客</title><meta name="description" content="0代码隐藏GroupedTableView上边多余的间隔 - sunnyxx"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="short icon" href="/favicon.ico"><link rel="stylesheet" href="/css/apollo.css"></head><body><header><a href="/" class="logo-link"><img src="/doge-logo.png"></a><ul class="nav nav-list"><li class="nav-list-item"><a href="/" target="_self" class="nav-list-link">BLOG</a></li><li class="nav-list-item"><a href="/archives/" target="_self" class="nav-list-link">ARCHIVE</a></li><li class="nav-list-item"><a href="http://weibo.com/1364395395/" target="_blank" class="nav-list-link">WEIBO</a></li><li class="nav-list-item"><a href="https://github.com/forkingdog" target="_blank" class="nav-list-link">GITHUB</a></li><li class="nav-list-item"><a href="/atom.xml" target="_self" class="nav-list-link">RSS</a></li></ul></header><section class="container"><div class="post"><article class="post-block"><h1 class="post-title">0代码隐藏GroupedTableView上边多余的间隔</h1><div class="post-time">2015年4月15日</div><div class="post-content"><p>实现诸如支付宝的 “探索” 页面时，最简单的方案是在 Storyboard 中来一个静态 Grouped UITableViewController，把各个 Cell 中的元素摆好就行了</p>
+<p><img src="http://ww1.sinaimg.cn/mw690/51530583jw1er6hby1sp0j20nq0tk768.jpg" width="320"></p>
+<p>不过会有下面的问题，第一个 Section 距离屏幕顶端有间隔</p>
+<p><img src="http://ww1.sinaimg.cn/mw690/51530583jw1er6hbxkv2xj20k80oota0.jpg" width="320"></p>
+<h3 id="一行代码搞定"><a href="#一行代码搞定" class="headerlink" title="一行代码搞定"></a>一行代码搞定</h3><p>研究发现，这里其实是一个被 UITableView 默认填充的 HeaderView。而且，当试图将它的高度设置为 0 时，完全不起效果。但我们用下面的代码创建一个高度特别小的 HeaderView 时，上面的边距就不见了：  </p>
+<p><img src="http://ww2.sinaimg.cn/large/51530583jw1er6jpgw0ndj20u40600ud.jpg" width="400"></p>
+<p><code>CGFLOAT_MIN</code> 这个宏表示 CGFloat 能代表的最接近 0 的浮点数，64 位下大概是 0.00(300左右个)0225 这个样子<br>这样写单纯的为了避免一个魔法数字，这里用 <code>0.1</code> 效果是一样的，后面再讲。 </p>
+<h3 id="在-Storyboard-中-0-代码搞定"><a href="#在-Storyboard-中-0-代码搞定" class="headerlink" title="在 Storyboard 中 0 代码搞定"></a>在 Storyboard 中 0 代码搞定</h3><p>没用 Storyboard 的同学使用上面的代码就 OK 了； 而在 Storyboard 中可以 0 代码搞定这个事：  </p>
+<p>首先，在第一个 Section 的上面拖进来一个空 UIView </p>
+<p><img src="http://ww3.sinaimg.cn/mw690/51530583jw1er6jd7na5uj20aw07cwfi.jpg" width="320"></p>
+<p>然后选中这个 UIView 的 Runtime Attributes 栏，添加一个 <code>frame</code> 的 KeyPath </p>
+<p><img src="http://ww3.sinaimg.cn/mw690/51530583jw1er6jd7wt02j20f6064wf8.jpg" width="320"></p>
+<p>这样头部的间隔就乖乖的不见了：   </p>
+<p><img src="http://ww2.sinaimg.cn/mw690/51530583jw1er6jj5n61fj20ju0lidgi.jpg
+" width="320"></p>
+<h3 id="刨根问底-UITableViewHeader-的猫腻"><a href="#刨根问底-UITableViewHeader-的猫腻" class="headerlink" title="刨根问底 UITableViewHeader 的猫腻"></a>刨根问底 UITableViewHeader 的猫腻</h3><p>为什么刚才说 0.1 和 CGFLOAT_MIN 是等效的呢？经过研究，这个高度值的影响大概是这样的：</p>
+<ol>
+<li>若传入的 height == 0，则 height 被设置成默认值</li>
+<li>若 height 小于屏幕半像素对应的高度，这个 header 不在另一个像素渲染</li>
+</ol>
+<p>半像素也就是 <code>1.0 / scale / 2.0</code>，如在 @2x 屏上是 0.25<br>直观的感受下，假如这个 height 被设置成 0.5 的样子：<br><img src="http://ww3.sinaimg.cn/mw690/51530583jw1er6kdmuz21j20ju0de0u4.jpg
+" width="320"></p>
+<p>身患强迫症的我是绝对不能容忍导航栏下面的阴影线看上去宽了 0.5 像素的，Done。</p>
+</div></article></div></section><footer><div class="paginator"><a href="/2015/05/07/multiple-char/" class="prev">上一篇</a><a href="/2015/03/29/xcode-tips/" class="next">下一篇</a></div><div data-thread-key="2015/04/15/ios-hide-grouped-tableview-header/" data-title="0代码隐藏GroupedTableView上边多余的间隔" data-url="http://blog.sunnyxx.com/2015/04/15/ios-hide-grouped-tableview-header/" data-author-key="1" class="ds-thread"></div><script>var duoshuoQuery = {short_name:"sunnyxx"};
+(function() {
+    var ds = document.createElement('script');
+    ds.type = 'text/javascript';ds.async = true;
+    ds.src = (document.location.protocol == 'https:' ? 'https:' : 'http:') + '//static.duoshuo.com/embed.js';
+    ds.charset = 'UTF-8';
+    (document.getElementsByTagName('head')[0] 
+     || document.getElementsByTagName('body')[0]).appendChild(ds);
+})();
+
+</script><div class="copyright"><p>原创文章，版权声明：署名-非商业性使用-相同方式共享 2.5 </p><p>对博主感兴趣？微信订阅号中关注 sunnyxx 或关注微博<a href="http://weibo.com/1364395395/">@我就叫Sunny怎么了</a></p><p>© 2015 - 2016  <a href="http://blog.sunnyxx.com">sunnyxx</a> | Powered by Hexo</p></div></footer></body></html>

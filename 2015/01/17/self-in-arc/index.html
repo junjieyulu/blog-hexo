@@ -1,0 +1,42 @@
+<!DOCTYPE html><html lang="zh-cn"><head><meta charset="utf-8"><meta name="X-UA-Compatible" content="IE=edge"><title> ARC对self的内存管理 · sunnyxx的技术博客</title><meta name="description" content="ARC对self的内存管理 - sunnyxx"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="short icon" href="/favicon.ico"><link rel="stylesheet" href="/css/apollo.css"></head><body><header><a href="/" class="logo-link"><img src="/doge-logo.png"></a><ul class="nav nav-list"><li class="nav-list-item"><a href="/" target="_self" class="nav-list-link">BLOG</a></li><li class="nav-list-item"><a href="/archives/" target="_self" class="nav-list-link">ARCHIVE</a></li><li class="nav-list-item"><a href="http://weibo.com/1364395395/" target="_blank" class="nav-list-link">WEIBO</a></li><li class="nav-list-item"><a href="https://github.com/forkingdog" target="_blank" class="nav-list-link">GITHUB</a></li><li class="nav-list-item"><a href="/atom.xml" target="_self" class="nav-list-link">RSS</a></li></ul></header><section class="container"><div class="post"><article class="post-block"><h1 class="post-title">ARC对self的内存管理</h1><div class="post-time">2015年1月17日</div><div class="post-content"><p>记录下前两天的一次讨论，源于网络库<strong>YTKNetwork</strong>中<a href="https://github.com/yuantiku/YTKNetwork/blob/master/YTKNetwork/YTKRequest.m" target="_blank" rel="external">“YTKRequest.m”</a>的<code>- start</code>方法其中的几行代码：  </p>
+<figure class="highlight objc"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">- (<span class="keyword">void</span>)start &#123;</span><br><span class="line">    <span class="comment">// ......</span></span><br><span class="line">    YTKRequest *strongSelf = <span class="keyword">self</span>;</span><br><span class="line">    [strongSelf.delegate requestFinished:strongSelf];</span><br><span class="line">    <span class="keyword">if</span> (strongSelf.successCompletionBlock) &#123;</span><br><span class="line">        strongSelf.successCompletionBlock(strongSelf);</span><br><span class="line">    &#125;</span><br><span class="line">    [strongSelf clearCompletionBlock];</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>看起来比较有违常理，所以和猿题库的@晨钰Lancy，@唐巧以及网易的@老汉一起讨论了下这个问题。  </p>
+<hr>
+<p>具体的问题大概是这样：</p>
+<ol>
+<li>调用方（如view controller）实例化并强引用<code>YTKRequest</code>对象，将自己作为其delegate</li>
+<li>调用方调用<code>YTKRequest</code>的<code>- start</code>方法发起网络请求</li>
+<li>调用方在<code>- requestFinished:</code>中执行了<code>self.request = nil;</code></li>
+<li><code>YTKRequest</code>中，<code>- start</code>方法在回调完<code>- requestFinished:</code>后<strong>BAD_ACCESS</strong>了</li>
+</ol>
+<p>也就是说，<code>- start</code>方法还未返回时，self就被外部释放了。作者发现了这个潜在的问题，所以在方法局部增设了一个<code>strongSelf</code>的强引用来保证self的生命周期延续到方法结束。问题是解决了，但是更希望知道原因。  </p>
+<p>简化说明就是：  </p>
+<figure class="highlight objc"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">- (<span class="keyword">void</span>)foo &#123;</span><br><span class="line">    <span class="comment">// self被delegate持有</span></span><br><span class="line">    [<span class="keyword">self</span>.delegate callout]; <span class="comment">// 外部释放了这个对象</span></span><br><span class="line">    <span class="comment">// 这里self野指针</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<hr>
+<p>现在想想还是比较不符合常理，入参的self居然不能保证这个函数执行完成。后来查阅了下文档，发现是ARC的(gao)机(de)制(gui)，clang的<a href="http://clang.llvm.org/docs/AutomaticReferenceCounting.html#self" target="_blank" rel="external">《这篇ARC文档》</a>中有明确的解释，总结如下：  </p>
+<ul>
+<li>ARC下，self既不是strong也不是weak，而是<code>unsafe_unretained</code>的，也就是说，入参的self被表示为：（init系列方法的self除外）</li>
+</ul>
+<figure class="highlight objc"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">- (<span class="keyword">void</span>)start &#123;</span><br><span class="line">   <span class="keyword">const</span> __unsafe_unretained YTKRequest *<span class="keyword">self</span>;</span><br><span class="line">   <span class="comment">// ...</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<ul>
+<li>在方法调用时，ARC不会对self做retain或release，生命周期全由<strong>它的调用方来保证</strong>，如果调用方没有保证，就会出现上面的crash</li>
+<li>ARC这样做的原因是<strong>性能优化</strong>，objc中100%的方法（不是函数）调用第一个参数都是self，同时，99%的情况下，调用方都不会在方法执行时把这个对象释放，所以相比于在每个方法中插入对self的引用计数管理：</li>
+</ul>
+<figure class="highlight objc"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">- (<span class="keyword">void</span>)start &#123;</span><br><span class="line">    objc_retain(<span class="keyword">self</span>);</span><br><span class="line">    <span class="comment">// 其中的代码self一定不会被释放</span></span><br><span class="line">    objc_release(<span class="keyword">self</span>);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>优化了的性能还真是比较可观。<br>而且，ARC也用了挺多方法来避免开发者进行额外的引用计数控制，比如方法的<strong>命名约定</strong>，通过判断方法是否以如<code>init</code>，<code>alloc</code>，<code>new</code>，<code>copy</code>等关键字开头来决定其内存管理方式。  </p>
+<hr>
+<p><strong>One more thing</strong></p>
+<p>在写test时发现，下面两种调用方法会导致不同结果：</p>
+<figure class="highlight objc"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">- (<span class="keyword">void</span>)viewDidLoad &#123;</span><br><span class="line">    <span class="comment">// 1</span></span><br><span class="line">    [_request start]; <span class="comment">// crash</span></span><br><span class="line">    <span class="comment">// 2</span></span><br><span class="line">    [<span class="keyword">self</span>.request start]; <span class="comment">// 正常</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>因为<code>self.request</code>是一次方法调用，返回的结果被<code>objc_retainAutoreleasedReturnValue</code>方法在局部进行了一次强引用，关于这个方法可以看之前写过的关于Autorelease的<a href="http://blog.sunnyxx.com/2014/10/15/behind-autorelease/">《这篇文章》</a></p>
+</div></article></div></section><footer><div class="paginator"><a href="/2015/03/01/todo-macro/" class="prev">上一篇</a><a href="/2014/12/20/64-bit-tips/" class="next">下一篇</a></div><div data-thread-key="2015/01/17/self-in-arc/" data-title="ARC对self的内存管理" data-url="http://blog.sunnyxx.com/2015/01/17/self-in-arc/" data-author-key="1" class="ds-thread"></div><script>var duoshuoQuery = {short_name:"sunnyxx"};
+(function() {
+    var ds = document.createElement('script');
+    ds.type = 'text/javascript';ds.async = true;
+    ds.src = (document.location.protocol == 'https:' ? 'https:' : 'http:') + '//static.duoshuo.com/embed.js';
+    ds.charset = 'UTF-8';
+    (document.getElementsByTagName('head')[0] 
+     || document.getElementsByTagName('body')[0]).appendChild(ds);
+})();
+
+</script><div class="copyright"><p>原创文章，版权声明：署名-非商业性使用-相同方式共享 2.5 </p><p>对博主感兴趣？微信订阅号中关注 sunnyxx 或关注微博<a href="http://weibo.com/1364395395/">@我就叫Sunny怎么了</a></p><p>© 2015 - 2016  <a href="http://blog.sunnyxx.com">sunnyxx</a> | Powered by Hexo</p></div></footer></body></html>

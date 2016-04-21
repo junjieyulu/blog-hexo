@@ -1,0 +1,22 @@
+<!DOCTYPE html><html lang="zh-cn"><head><meta charset="utf-8"><meta name="X-UA-Compatible" content="IE=edge"><title> 巧用多字符Char常量 · sunnyxx的技术博客</title><meta name="description" content="巧用多字符Char常量 - sunnyxx"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="short icon" href="/favicon.ico"><link rel="stylesheet" href="/css/apollo.css"></head><body><header><a href="/" class="logo-link"><img src="/doge-logo.png"></a><ul class="nav nav-list"><li class="nav-list-item"><a href="/" target="_self" class="nav-list-link">BLOG</a></li><li class="nav-list-item"><a href="/archives/" target="_self" class="nav-list-link">ARCHIVE</a></li><li class="nav-list-item"><a href="http://weibo.com/1364395395/" target="_blank" class="nav-list-link">WEIBO</a></li><li class="nav-list-item"><a href="https://github.com/forkingdog" target="_blank" class="nav-list-link">GITHUB</a></li><li class="nav-list-item"><a href="/atom.xml" target="_self" class="nav-list-link">RSS</a></li></ul></header><section class="container"><div class="post"><article class="post-block"><h1 class="post-title">巧用多字符Char常量</h1><div class="post-time">2015年5月7日</div><div class="post-content"><p>###巧用多字符Char</p>
+<p>我们很熟悉<code>char</code>这个数据类型和它的使用方式：  </p>
+<figure class="highlight objc"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">char</span> c = <span class="string">'a'</span>;</span><br></pre></td></tr></table></figure>
+<p>这个 c 变量在 <strong>ASCII</strong> 编码下是 <strong>97</strong><br>还有一种不常见的多字符 char 的写法：  </p>
+<figure class="highlight"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">int i = 'AaBb';</span><br></pre></td></tr></table></figure>
+<p>这个 i 变量的值按每个 char 的 ASCII 值转 16 进制拼在一起，也就是说：  </p>
+<figure class="highlight"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">'AaBb'</span><br><span class="line">-&gt; '0x41'+'0x61'+'0x42'+'0x62'</span><br><span class="line">-&gt; '0x41614262' // 十进制1096893026</span><br></pre></td></tr></table></figure>
+<p>PS：这个组合方式和“大小端”有关系，上面是 i386 下的结果<br>多字符的长度限度为最多 <strong>4</strong> 个 char</p>
+<p>知道了这个特性，我们就可以做些坏事，比如：</p>
+<figure class="highlight"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">self.someButton.tag = 'SHIT';</span><br><span class="line">...</span><br><span class="line"></span><br><span class="line">if (button.tag == 'SHIT') &#123;</span><br><span class="line">    NSLog(@"I've got this shit button");</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>当然使用tag是很不推荐的写法，尽量不用。使用这个特性来避免些魔法数字或标记些整型数字还是极好的。</p>
+</div></article></div></section><footer><div class="paginator"><a href="/2015/05/17/cell-height-calculation/" class="prev">上一篇</a><a href="/2015/04/15/ios-hide-grouped-tableview-header/" class="next">下一篇</a></div><div data-thread-key="2015/05/07/multiple-char/" data-title="巧用多字符Char常量" data-url="http://blog.sunnyxx.com/2015/05/07/multiple-char/" data-author-key="1" class="ds-thread"></div><script>var duoshuoQuery = {short_name:"sunnyxx"};
+(function() {
+    var ds = document.createElement('script');
+    ds.type = 'text/javascript';ds.async = true;
+    ds.src = (document.location.protocol == 'https:' ? 'https:' : 'http:') + '//static.duoshuo.com/embed.js';
+    ds.charset = 'UTF-8';
+    (document.getElementsByTagName('head')[0] 
+     || document.getElementsByTagName('body')[0]).appendChild(ds);
+})();
+
+</script><div class="copyright"><p>原创文章，版权声明：署名-非商业性使用-相同方式共享 2.5 </p><p>对博主感兴趣？微信订阅号中关注 sunnyxx 或关注微博<a href="http://weibo.com/1364395395/">@我就叫Sunny怎么了</a></p><p>© 2015 - 2016  <a href="http://blog.sunnyxx.com">sunnyxx</a> | Powered by Hexo</p></div></footer></body></html>

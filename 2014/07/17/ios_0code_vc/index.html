@@ -1,0 +1,58 @@
+<!DOCTYPE html><html lang="zh-cn"><head><meta charset="utf-8"><meta name="X-UA-Compatible" content="IE=edge"><title> 0代码ViewController · sunnyxx的技术博客</title><meta name="description" content="0代码ViewController - sunnyxx"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="short icon" href="/favicon.ico"><link rel="stylesheet" href="/css/apollo.css"></head><body><header><a href="/" class="logo-link"><img src="/doge-logo.png"></a><ul class="nav nav-list"><li class="nav-list-item"><a href="/" target="_self" class="nav-list-link">BLOG</a></li><li class="nav-list-item"><a href="/archives/" target="_self" class="nav-list-link">ARCHIVE</a></li><li class="nav-list-item"><a href="http://weibo.com/1364395395/" target="_blank" class="nav-list-link">WEIBO</a></li><li class="nav-list-item"><a href="https://github.com/forkingdog" target="_blank" class="nav-list-link">GITHUB</a></li><li class="nav-list-item"><a href="/atom.xml" target="_self" class="nav-list-link">RSS</a></li></ul></header><section class="container"><div class="post"><article class="post-block"><h1 class="post-title">0代码ViewController</h1><div class="post-time">2014年7月17日</div><div class="post-content"><h1 id="我是前言"><a href="#我是前言" class="headerlink" title="我是前言"></a>我是前言</h1><p>看了<code>objc.io</code>中的<a href="http://www.objc.io/issue-13/behaviors.html" target="_blank" rel="external">《Behaviors in iOS Apps》</a>（objccn上也有<a href="http://objccn.io/issue-13-3/" target="_blank" rel="external">中文翻译版</a>）后，终于<strong>如梦初醒</strong>了IB中的这个低调的<code>Object</code>存在的意义：  </p>
+<p><img src="http://ww1.sinaimg.cn/large/51530583gw1eifvg6elgrj20jk060js7.jpg" width="400"></p>
+<p>再加上同样被轻视的Runtime Attributes:  </p>
+<p><img src="http://ww4.sinaimg.cn/large/51530583gw1eifvtsgrgpj20dq05w0sv.jpg" width="300"></p>
+<p>有了这些，IB才算完整和强大。<br>最近看了一些文章，加上工程中也遇到的坑，矛头都指向了<strong>MVC(Massive View Controller)</strong>：臃肿的ViewController所引发的不爽，<code>objc.io</code>也是以一个<a href="http://www.objc.io/issue-1/" target="_blank" rel="external">《Lighter View Controllers》</a>开篇。从把DataSource和Delegte从VC中分离，到把Model逻辑整个分离的<code>MVVM</code>，VC一步步瘦身，再到这篇Behavior模式巧妙的组件式的分离了功能。但有没有想过，为啥往一个页面写点啥东西就一定要子类化一个VC呢，使用上面两个IB的功能，我们可以激进地实验一次<code>0代码ViewController</code></p>
+<hr>
+<h1 id="Top-Level-Objects"><a href="#Top-Level-Objects" class="headerlink" title="Top Level Objects"></a>Top Level Objects</h1><p>首先必须说明Top Level Objects这个概念，根据apple文档：</p>
+<blockquote>
+<p>The top-level objects are the subset of these objects that do not have a parent object. The top-level objects typically include only the windows, menubars, and custom controller objects that you add to the nib file. (Objects such as File’s Owner, First Responder, and Application are placeholder objects and not considered top-level objects.)</p>
+</blockquote>
+<p>所以，IB里面的<code>Object</code>控件其实就是向Controller中添加<code>Custom Top Level Object</code>，在storyboard中被摆在下面的位置：</p>
+<p><img src="http://ww4.sinaimg.cn/large/51530583gw1eifwvsnandj20es08kaaw.jpg" width="400"></p>
+<p>事实上任何Object都可以添加，这里出现了一个LoginViewModel对象、一个菊花、一个Tap手势。</p>
+<h3 id="Nib对象的创建顺序"><a href="#Nib对象的创建顺序" class="headerlink" title="Nib对象的创建顺序"></a>Nib对象的创建顺序</h3><ol>
+<li>自定义的Top Level Objects收到<code>- init</code>消息</li>
+<li>ViewController收到<code>- initWithCoder:</code>消息</li>
+<li>自定义的Top Level Objects 收到<code>- awakeFromNib</code>消息</li>
+<li>ViewController收到<code>- awakeFromNib</code>消息</li>
+<li>子View分别收到<code>- initWithCoder:</code>消息</li>
+<li>子View分别收到<code>- awakeFromNib</code>消息</li>
+</ol>
+<p>可见自定义的Object的创建时间是早于VC的，至于为什么<code>- awakeFromNib</code>收到的晚于VC的创建，是因为<strong>创建出来的Object需要被VC强引用</strong></p>
+<h3 id="VC对自定义Objects的强引用"><a href="#VC对自定义Objects的强引用" class="headerlink" title="VC对自定义Objects的强引用"></a>VC对自定义Objects的强引用</h3><p>创建出来的Object必须保证不被释放，这个强引用由VC实现，虽说没有显示的API，但从<code>UIViewController.h</code>中可以看到马脚：</p>
+<figure class="highlight objc"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="class"><span class="keyword">@interface</span> <span class="title">UIViewController</span> : <span class="title">UIResponder</span> </span>&#123;</span><br><span class="line">    @package</span><br><span class="line">    <span class="comment">// ...</span></span><br><span class="line">    <span class="built_in">NSDictionary</span>  *_externalObjectsTableForViewLoading;</span><br><span class="line">    <span class="built_in">NSArray</span>       *_topLevelObjectsToKeepAliveFromStoryboard;</span><br><span class="line">    <span class="comment">// ...   </span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>通过KVC可以很轻松的取出来：</p>
+<figure class="highlight objc"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">NSArray</span> *objs = [vc valueForKey:<span class="string">@"_topLevelObjectsToKeepAliveFromStoryboard"</span>];</span><br><span class="line"><span class="built_in">NSDictionary</span> *dict = [vc valueForKey:<span class="string">@"_externalObjectsTableForViewLoading"</span>];</span><br></pre></td></tr></table></figure>
+<p>这些objects就是被这个数组强引用的，感兴趣的可以打印下看看结果。<br><em>注：只在storyboard下生效，在xib下，被创建的Object因为没有被强引用而随后被释放。</em></p>
+<hr>
+<h1 id="构建0代码VC的简单登录场景"><a href="#构建0代码VC的简单登录场景" class="headerlink" title="构建0代码VC的简单登录场景"></a>构建0代码VC的简单登录场景</h1><p><strong>storyboard中拉出个VC，随便摆摆：</strong><br><img src="http://ww3.sinaimg.cn/large/51530583gw1eig0usoroej209k076t8p.jpg" width="350"></p>
+<p><strong>创建一个ViewModel类（也就是Behavior类），里面写需要的IBOutlet和IBAction</strong>  </p>
+<figure class="highlight objc"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="class"><span class="keyword">@interface</span> <span class="title">XXLoginViewModel</span> : <span class="title">NSObject</span></span></span><br><span class="line"><span class="keyword">@property</span> (<span class="keyword">nonatomic</span>, <span class="keyword">weak</span>) <span class="keyword">IBOutlet</span> <span class="built_in">UIViewController</span> *ownerViewController;</span><br><span class="line"><span class="keyword">@property</span> (<span class="keyword">nonatomic</span>, <span class="keyword">weak</span>) <span class="keyword">IBOutlet</span> <span class="built_in">UITextField</span> *usernameTextField;</span><br><span class="line"><span class="keyword">@property</span> (<span class="keyword">nonatomic</span>, <span class="keyword">weak</span>) <span class="keyword">IBOutlet</span> <span class="built_in">UITextField</span> *passwordTextField;</span><br><span class="line"><span class="keyword">@property</span> (<span class="keyword">nonatomic</span>, <span class="keyword">weak</span>) <span class="keyword">IBOutlet</span> <span class="built_in">UIActivityIndicatorView</span> *spinner;</span><br><span class="line">- (<span class="keyword">IBAction</span>)loginAction:(<span class="keyword">id</span>)sender;</span><br><span class="line"><span class="keyword">@end</span></span><br></pre></td></tr></table></figure>
+<p><strong>storyboard中拖出来一个Object到左边，设置类为这个<code>XXLoginViewModel</code>, 将所有IBOutlet和IBAction连接好</strong></p>
+<p><img src="http://ww2.sinaimg.cn/large/51530583gw1eig0zjf4gpj20wi0ecdid.jpg" width="550"></p>
+<p><strong>这样，就可以在自定义Object中为所欲为了，需要什么就从storyboard里面Outlet出来就好了，比如点击之后的跳转：</strong>  </p>
+<figure class="highlight objc"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">- (<span class="keyword">IBAction</span>)loginAction:(<span class="keyword">id</span>)sender &#123;</span><br><span class="line">    [<span class="keyword">self</span>.ownerViewController performSegueWithIdentifier:<span class="string">@"LoginSegue"</span> sender:<span class="literal">nil</span>];</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>具体的代码不show了，Demo的效果如下：</p>
+<p><img src="http://ww1.sinaimg.cn/large/51530583gw1eig8tuzciig208r0d5n18.gif" alt=""></p>
+<p>当然，TableView的delegate和data source也都是可以托管到自定义Object中，同时，Object之间也可以有Outlet关系哦，剩下的就纯靠想象力了。   </p>
+<p><strong>这个简单的demo从<a href="https://github.com/sunnyxx/XXZeroCodeViewControllerDemo" target="_blank" rel="external">-&gt;这里下载&lt;-</a></strong></p>
+<hr>
+<h1 id="What’s-more"><a href="#What’s-more" class="headerlink" title="What’s more"></a>What’s more</h1><ul>
+<li>首先，这次实验并非表明我们应该写0代码的VC，UIViewController本身被设计作为一个<code>模板类</code>，继承+重载无可非议（但像UITableView这种被设计成<code>配置类</code>的类，我们更应该去配置它，而非继承它，更别说NSArray，NSString这种类簇的工具类了）</li>
+<li>组合模式以十分灵活的方式划分功能，Demo中只用了一个ViewModel，其实完全可以组合一个Animation类实现动画，组合一个HTTP类来发请求？，组合一个处理旋转屏幕的类等等，而且<strong>完成这些子功能的代码集中在一个类中，而不是分散在VC的各个角落，两个功能的小模块间可以说没有耦合</strong></li>
+<li>VC没有代码，但storyboard已经干了VC该干的事，如创建和布局子View、设置Autolayout、设置action，定义跳转等。我想，Apple祭出storyboard的目的就在于将纯视图和纯代码逻辑分离，VC本该Control它的View，而不是自己就是那个View</li>
+</ul>
+<hr>
+<h1 id="References"><a href="#References" class="headerlink" title="References"></a>References</h1><p><a href="https://developer.apple.com/library/mac/documentation/Cocoa/Conceptual/LoadingResources/CocoaNibs/CocoaNibs.html" target="_blank" rel="external">https://developer.apple.com/library/mac/documentation/Cocoa/Conceptual/LoadingResources/CocoaNibs/CocoaNibs.html</a><br><a href="http://www.objc.io/issue-13/behaviors.html" target="_blank" rel="external">http://www.objc.io/issue-13/behaviors.html</a></p>
+</div></article></div></section><footer><div class="paginator"><a href="/2014/08/02/objc-weird-code/" class="prev">上一篇</a><a href="/2014/07/01/ios_ib_bridge/" class="next">下一篇</a></div><div data-thread-key="2014/07/17/ios_0code_vc/" data-title="0代码ViewController" data-url="http://blog.sunnyxx.com/2014/07/17/ios_0code_vc/" data-author-key="1" class="ds-thread"></div><script>var duoshuoQuery = {short_name:"sunnyxx"};
+(function() {
+    var ds = document.createElement('script');
+    ds.type = 'text/javascript';ds.async = true;
+    ds.src = (document.location.protocol == 'https:' ? 'https:' : 'http:') + '//static.duoshuo.com/embed.js';
+    ds.charset = 'UTF-8';
+    (document.getElementsByTagName('head')[0] 
+     || document.getElementsByTagName('body')[0]).appendChild(ds);
+})();
+
+</script><div class="copyright"><p>原创文章，版权声明：署名-非商业性使用-相同方式共享 2.5 </p><p>对博主感兴趣？微信订阅号中关注 sunnyxx 或关注微博<a href="http://weibo.com/1364395395/">@我就叫Sunny怎么了</a></p><p>© 2015 - 2016  <a href="http://blog.sunnyxx.com">sunnyxx</a> | Powered by Hexo</p></div></footer></body></html>
