@@ -67,6 +67,89 @@
   </entry>
   
   <entry>
+    <title>Objective-C Calling Conventions</title>
+    <link href="http://blog.sunnyxx.com/2016/04/16/objc-calling-conventions/"/>
+    <id>http://blog.sunnyxx.com/2016/04/16/objc-calling-conventions/</id>
+    <published>2016-04-16T05:19:42.000Z</published>
+    <updated>2016-04-23T10:43:51.000Z</updated>
+    
+    <content type="html">&lt;p&gt;平时发呆时候，总喜欢脑洞一些很扯的问题，比如：我们是不是生活在一个模拟器里？时间的最小尺度是不是模拟器 CPU 的一个时钟周期？观察就会导致量子态塌陷其实是模拟器的 lazy calculation - -？时不时码农癌发作，就得赶紧去写几个 bug 压压惊。再比如说，程序是由编译器编译出来的，但编译器本身也是个程序，那它喵的最开始的编译器是谁编译的呢？&lt;/p&gt;
+&lt;p&gt;所以搞物理的和搞计算机的是两个目标相反的职业：程序员们从让机器执行最简单的指令开始，搞出汇编、搞出函数、搞出高级语言、搞出人工智能，妄图一步步模拟出整个世界；而物理学家就跟逆向工程师似的，从观察宏观现象，到在对撞机中互怼微观粒子，再到迷之量子力学，妄图一步步反推出万物本源；所以写码混饭的时候，还真得感谢被我们踩在脚下，在计算机大楼打地基的一辈人，感谢最初用机器码人肉裸写出编译器的前辈们。&lt;/p&gt;
+&lt;p&gt;本文在 Objective-C 语境下，对计算机大楼地基中的 &lt;code&gt;Calling Conventions&lt;/code&gt; 进行研究和介绍，它描述了&lt;strong&gt;函数调用&lt;/strong&gt;所遵循的基本原则，了解之后，可以让我们对 iOS 一些机制的理解变的更加清晰，如：可变参数的本质、&lt;code&gt;objc_msgSend&lt;/code&gt; 为何这样实现、&lt;code&gt;NSInvocation&lt;/code&gt; 是干嘛的、&lt;code&gt;NSMethodSignature&lt;/code&gt; 存在的意义、&lt;code&gt;libffi&lt;/code&gt; 等，下面细细讲来。&lt;/p&gt;
+&lt;h2 id=&quot;蠢蠢的过程式指令&quot;&gt;&lt;a href=&quot;#蠢蠢的过程式指令&quot; class=&quot;headerlink&quot; title=&quot;蠢蠢的过程式指令&quot;&gt;&lt;/a&gt;蠢蠢的过程式指令&lt;/h2&gt;&lt;p&gt;不论学任何一种语言，都是从在 &lt;code&gt;main&lt;/code&gt; 函数中用一个 &lt;code&gt;print&lt;/code&gt; 函数打印 &lt;code&gt;&amp;quot;Hello World&amp;quot;&lt;/code&gt; 开始，隐射出&lt;strong&gt;函数是高级语言的基本元素之一&lt;/strong&gt;，但我们知道，高级语言的代码会被编译器编译成更低级的汇编指令，进而按指令的对应表翻译成机器认识的 010101 二进制形式&lt;/p&gt;
+&lt;p&gt;程序逻辑由函数组成，函数由细碎的 CPU 指令集，更背后的背后，是 CPU 如何通过电信号&lt;/p&gt;
+&lt;p&gt;相信 &lt;code&gt;Calling Conventions&lt;/code&gt; 对多数 iOS 开发者来说都是个陌生概念，它深藏程序之中，几乎感知不到它的存在，但如可变参数、NSInvocation、NSMethodSignature、objc_retainAutorelease 甚至 objc_msgSend 都和它有或多或少的关系&lt;/p&gt;
+&lt;p&gt;是函数调用的灵魂所在，这篇文章将在 iOS 和 Objective-C 的范畴中简单介绍下 Calling Conventions，同时，一些有意思的机制也将得以解释：&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;可变参数是什么，va_list 如何实现&lt;/li&gt;
+&lt;li&gt;objc_msgSend 为何用汇编实现&lt;/li&gt;
+&lt;li&gt;NSInvocation 与 NSMethodSignature&lt;/li&gt;
+&lt;li&gt;objc_retainAutorelease 的里应外合实现&lt;/li&gt;
+&lt;li&gt;动态反射调用 c 方法与 libffi&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h2 id=&quot;Calling-Conventions-是干嘛用的&quot;&gt;&lt;a href=&quot;#Calling-Conventions-是干嘛用的&quot; class=&quot;headerlink&quot; title=&quot;Calling Conventions 是干嘛用的&quot;&gt;&lt;/a&gt;Calling Conventions 是干嘛用的&lt;/h2&gt;&lt;blockquote&gt;
+&lt;p&gt;a calling convention is an implementation-level (low-level) scheme for how subroutines receive parameters from their caller and how they return a result.&lt;/p&gt;
+&lt;/blockquote&gt;
+&lt;p&gt;它约定了（包括但不限于）：&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;入参和返回值存放的位置和规则：用 register（寄存器）还是用 stack（栈内存）还是某种组合方式传递、参数个数和类型不同时如何存放（取决于一个值的长度能否被寄存器的长度容下，如一个较大的 struct 的返回方式不同于一个 int 的返回方式）&lt;/li&gt;
+&lt;li&gt;参数的传递顺序&lt;br&gt;-&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;从刚开始学 C 语言的时候，就在接触函数。只要看到它的声明，就知道了函数名、入参类型、返回值类型：&lt;/p&gt;
+&lt;figure class=&quot;highlight c&quot;&gt;&lt;table&gt;&lt;tr&gt;&lt;td class=&quot;gutter&quot;&gt;&lt;pre&gt;&lt;span class=&quot;line&quot;&gt;1&lt;/span&gt;&lt;br&gt;&lt;/pre&gt;&lt;/td&gt;&lt;td class=&quot;code&quot;&gt;&lt;pre&gt;&lt;span class=&quot;line&quot;&gt;&lt;span class=&quot;function&quot;&gt;&lt;span class=&quot;keyword&quot;&gt;int&lt;/span&gt; &lt;span class=&quot;title&quot;&gt;addUp2&lt;/span&gt;&lt;span class=&quot;params&quot;&gt;(&lt;span class=&quot;keyword&quot;&gt;int&lt;/span&gt; first, &lt;span class=&quot;keyword&quot;&gt;int&lt;/span&gt; second)&lt;/span&gt;&lt;/span&gt;;&lt;/span&gt;&lt;br&gt;&lt;/pre&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/figure&gt;
+&lt;p&gt;进而就能够轻松的进行函数调用：&lt;/p&gt;
+&lt;figure class=&quot;highlight c&quot;&gt;&lt;table&gt;&lt;tr&gt;&lt;td class=&quot;gutter&quot;&gt;&lt;pre&gt;&lt;span class=&quot;line&quot;&gt;1&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;2&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;3&lt;/span&gt;&lt;br&gt;&lt;/pre&gt;&lt;/td&gt;&lt;td class=&quot;code&quot;&gt;&lt;pre&gt;&lt;span class=&quot;line&quot;&gt;&lt;span class=&quot;function&quot;&gt;&lt;span class=&quot;keyword&quot;&gt;void&lt;/span&gt; &lt;span class=&quot;title&quot;&gt;test&lt;/span&gt;&lt;span class=&quot;params&quot;&gt;()&lt;/span&gt; &lt;/span&gt;&amp;#123;&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;  &lt;span class=&quot;keyword&quot;&gt;int&lt;/span&gt; result = addUp2(&lt;span class=&quot;number&quot;&gt;233&lt;/span&gt;, &lt;span class=&quot;number&quot;&gt;666&lt;/span&gt;); &lt;span class=&quot;comment&quot;&gt;// 233 + 666 = 899&lt;/span&gt;&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;&amp;#125;&lt;/span&gt;&lt;br&gt;&lt;/pre&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/figure&gt;
+&lt;p&gt;一切都非常自然，而背后却是 &lt;code&gt;Calling Convensions&lt;/code&gt; 定义的规则：&lt;/p&gt;
+&lt;ol&gt;
+&lt;li&gt;C 代码编译后，被揉碎成一行行过程式的汇编指令，能直接操作的只有 &lt;code&gt;register&lt;/code&gt;（寄存器）和 &lt;code&gt;stack&lt;/code&gt;（函数栈内存），对于函数调用只是一个 &lt;code&gt;call&lt;/code&gt; 指令跳转到函数入口地址，那函数参数如何传递、返回值如何返回给 caller 呢？&lt;/li&gt;
+&lt;li&gt;光我们能接触到的 Architecture 就有很多种，如 i386（ Mac32位和32位模拟器 ）、x86_64（Mac64位和64位模拟器）、真机 armv7、armv7s、arm64 等，每个架构下 CPU 不同导致汇编指令集也不尽相同，&lt;/li&gt;
+&lt;/ol&gt;
+&lt;p&gt;&lt;a href=&quot;http://zhuanlan.zhihu.com/p/19893066&quot; target=&quot;_blank&quot; rel=&quot;external&quot;&gt;http://zhuanlan.zhihu.com/p/19893066&lt;/a&gt;&lt;br&gt;&lt;figure class=&quot;highlight plain&quot;&gt;&lt;table&gt;&lt;tr&gt;&lt;td class=&quot;gutter&quot;&gt;&lt;pre&gt;&lt;span class=&quot;line&quot;&gt;1&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;2&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;3&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;4&lt;/span&gt;&lt;br&gt;&lt;/pre&gt;&lt;/td&gt;&lt;td class=&quot;code&quot;&gt;&lt;pre&gt;&lt;span class=&quot;line&quot;&gt;&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;``` c&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;int add(const char *, ...); // declared in stdio.h&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;printf(&amp;quot;Hello world: %s\n&amp;quot;, &amp;quot;sunnyxx&amp;quot;);&lt;/span&gt;&lt;br&gt;&lt;/pre&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/figure&gt;&lt;/p&gt;
+&lt;!-- markup clean* --&gt;
+&lt;p&gt;这是如此的自然，而在 Objective-C 中，我们知道这个消息机制的核心函数：&lt;/p&gt;
+&lt;figure class=&quot;highlight objc&quot;&gt;&lt;table&gt;&lt;tr&gt;&lt;td class=&quot;gutter&quot;&gt;&lt;pre&gt;&lt;span class=&quot;line&quot;&gt;1&lt;/span&gt;&lt;br&gt;&lt;/pre&gt;&lt;/td&gt;&lt;td class=&quot;code&quot;&gt;&lt;pre&gt;&lt;span class=&quot;line&quot;&gt;OBJC_EXPORT &lt;span class=&quot;keyword&quot;&gt;void&lt;/span&gt; objc_msgSend(&lt;span class=&quot;keyword&quot;&gt;void&lt;/span&gt;); &lt;span class=&quot;comment&quot;&gt;// declared in message.h&lt;/span&gt;&lt;/span&gt;&lt;br&gt;&lt;/pre&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/figure&gt;
+&lt;p&gt;往一个对象发送 message 最终会转化成 &lt;code&gt;objc_msgSend&lt;/code&gt; 的函数调用：&lt;/p&gt;
+&lt;figure class=&quot;highlight objc&quot;&gt;&lt;table&gt;&lt;tr&gt;&lt;td class=&quot;gutter&quot;&gt;&lt;pre&gt;&lt;span class=&quot;line&quot;&gt;1&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;2&lt;/span&gt;&lt;br&gt;&lt;/pre&gt;&lt;/td&gt;&lt;td class=&quot;code&quot;&gt;&lt;pre&gt;&lt;span class=&quot;line&quot;&gt;&lt;span class=&quot;built_in&quot;&gt;NSRange&lt;/span&gt; range = [&lt;span class=&quot;string&quot;&gt;@&quot;sunnyxx&quot;&lt;/span&gt; rangeOfString:&lt;span class=&quot;string&quot;&gt;@&quot;xx&quot;&lt;/span&gt;];&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;--&amp;gt; &lt;span class=&quot;built_in&quot;&gt;NSRange&lt;/span&gt; range = objc_msgSend(&lt;span class=&quot;string&quot;&gt;@&quot;sunnyxx&quot;&lt;/span&gt;, (SEL)&lt;span class=&quot;string&quot;&gt;&quot;rangeOfString:&quot;&lt;/span&gt;, &lt;span class=&quot;string&quot;&gt;@&quot;xx&quot;&lt;/span&gt;);&lt;/span&gt;&lt;br&gt;&lt;/pre&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/figure&gt;
+&lt;p&gt;那么，问题就来了：方法千千万万，参数类型、个数，返回值类型都不尽相同，Objective-C 是如何做到用一个简单的 &lt;code&gt;objc_msgSend&lt;/code&gt; 声明来承载所有函数调用呢？&lt;/p&gt;
+&lt;p&gt;与之而来的一系列问题：&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;函数定义的作用是什么？&lt;/li&gt;
+&lt;li&gt;参数和返回值是如何传递的？&lt;/li&gt;
+&lt;li&gt;函数调用是如何发生的？&lt;/li&gt;
+&lt;li&gt;可变参数是个什么？&lt;/li&gt;
+&lt;li&gt;NSInvocation 和 NSMethodSignature 有何卵用？&lt;/li&gt;
+&lt;li&gt;编译器和 CPU 架构都充当了什么角色呢？&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;让我们一起来扒一扒。&lt;/p&gt;
+&lt;h2 id=&quot;汇编视角&quot;&gt;&lt;a href=&quot;#汇编视角&quot; class=&quot;headerlink&quot; title=&quot;汇编视角&quot;&gt;&lt;/a&gt;汇编视角&lt;/h2&gt;&lt;p&gt;要探索 C 语言的函数调用机制，就要从更底层的汇编入手。在 &lt;code&gt;main.c&lt;/code&gt; 中写一段简单的测试代码：&lt;/p&gt;
+&lt;figure class=&quot;highlight c&quot;&gt;&lt;table&gt;&lt;tr&gt;&lt;td class=&quot;gutter&quot;&gt;&lt;pre&gt;&lt;span class=&quot;line&quot;&gt;1&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;2&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;3&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;4&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;5&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;6&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;7&lt;/span&gt;&lt;br&gt;&lt;/pre&gt;&lt;/td&gt;&lt;td class=&quot;code&quot;&gt;&lt;pre&gt;&lt;span class=&quot;line&quot;&gt;&lt;span class=&quot;function&quot;&gt;&lt;span class=&quot;keyword&quot;&gt;static&lt;/span&gt; &lt;span class=&quot;keyword&quot;&gt;int&lt;/span&gt; &lt;span class=&quot;title&quot;&gt;add&lt;/span&gt;&lt;span class=&quot;params&quot;&gt;(&lt;span class=&quot;keyword&quot;&gt;int&lt;/span&gt; a, &lt;span class=&quot;keyword&quot;&gt;int&lt;/span&gt; b)&lt;/span&gt; &lt;/span&gt;&amp;#123;&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;    return a + b;&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;&amp;#125;&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;&lt;span class=&quot;function&quot;&gt;&lt;span class=&quot;keyword&quot;&gt;int&lt;/span&gt; &lt;span class=&quot;title&quot;&gt;main&lt;/span&gt;&lt;span class=&quot;params&quot;&gt;()&lt;/span&gt; &lt;/span&gt;&amp;#123;&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;    &lt;span class=&quot;keyword&quot;&gt;int&lt;/span&gt; result = add(&lt;span class=&quot;number&quot;&gt;233&lt;/span&gt;, &lt;span class=&quot;number&quot;&gt;666&lt;/span&gt;);&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;    return &lt;span class=&quot;number&quot;&gt;0&lt;/span&gt;;&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;&amp;#125;&lt;/span&gt;&lt;br&gt;&lt;/pre&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/figure&gt;
+&lt;p&gt;有两种方式可以让我们看到汇编代码，一种是利用 Xcode 的 &lt;code&gt;Show the Assistant editor&lt;/code&gt; 也就是分成左右两栏的模式，然后点开右边栏上方的下拉菜单，选择 &lt;code&gt;Assembly&lt;/code&gt;，就能看到左边源码对应的汇编代码了；也可以使用命令行来编译源文件生成汇编：&lt;/p&gt;
+&lt;figure class=&quot;highlight bash&quot;&gt;&lt;table&gt;&lt;tr&gt;&lt;td class=&quot;gutter&quot;&gt;&lt;pre&gt;&lt;span class=&quot;line&quot;&gt;1&lt;/span&gt;&lt;br&gt;&lt;/pre&gt;&lt;/td&gt;&lt;td class=&quot;code&quot;&gt;&lt;pre&gt;&lt;span class=&quot;line&quot;&gt;$ clang -S -arch x86_64 main.c -o main_x86_64.s&lt;/span&gt;&lt;br&gt;&lt;/pre&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/figure&gt;
+&lt;p&gt;其中 &lt;code&gt;-S&lt;/code&gt; 表示生成汇编代码，&lt;code&gt;-arch x86_64&lt;/code&gt; 指定在 &lt;code&gt;x86_64&lt;/code&gt; 架构下编译，&lt;code&gt;-o&lt;/code&gt; 表示 output 到哪个文件。&lt;br&gt;于是乎我们就得到了一大片看不懂的汇编代码，将其中函数调用部分的代码整理出来：&lt;/p&gt;
+&lt;figure class=&quot;highlight c&quot;&gt;&lt;table&gt;&lt;tr&gt;&lt;td class=&quot;gutter&quot;&gt;&lt;pre&gt;&lt;span class=&quot;line&quot;&gt;1&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;2&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;3&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;4&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;5&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;6&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;7&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;8&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;9&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;10&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;11&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;12&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;13&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;14&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;15&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;16&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;17&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;18&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;19&lt;/span&gt;&lt;br&gt;&lt;/pre&gt;&lt;/td&gt;&lt;td class=&quot;code&quot;&gt;&lt;pre&gt;&lt;span class=&quot;line&quot;&gt;_main:&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;  pushq	%rbp&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;  movq	%rsp, %rbp&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;  subq  $&lt;span class=&quot;number&quot;&gt;16&lt;/span&gt;, %rsp&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;  movl	$&lt;span class=&quot;number&quot;&gt;233&lt;/span&gt;, %eax&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;  movl	$&lt;span class=&quot;number&quot;&gt;666&lt;/span&gt;, %ecx&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;  movl  $&lt;span class=&quot;number&quot;&gt;0&lt;/span&gt;, &lt;span class=&quot;number&quot;&gt;-4&lt;/span&gt;(%rbp)&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;  callq _add&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;  &lt;span class=&quot;comment&quot;&gt;// ...&lt;/span&gt;&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;_add:&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;  pushq	%rbp&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;  movq	%rsp, %rbp&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;  movl	%edi, &lt;span class=&quot;number&quot;&gt;-4&lt;/span&gt;(%rbp)&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;  movl	%esi, &lt;span class=&quot;number&quot;&gt;-8&lt;/span&gt;(%rbp)&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;  movl	&lt;span class=&quot;number&quot;&gt;-4&lt;/span&gt;(%rbp), %esi&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;  addl	&lt;span class=&quot;number&quot;&gt;-8&lt;/span&gt;(%rbp), %esi&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;  movl	%esi, %eax&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;  popq	%rbp&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;  retq&lt;/span&gt;&lt;br&gt;&lt;/pre&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/figure&gt;
+&lt;p&gt;首先可以清楚的观察到，我们写的 C 函数的被 &lt;a href=&quot;https://en.wikipedia.org/wiki/Name_mangling&quot; target=&quot;_blank&quot; rel=&quot;external&quot;&gt;Name Mangling&lt;/a&gt; 转化成前面加下划线的形式，以 Label 的形式出现，很像 &lt;code&gt;goto&lt;/code&gt; 语句的那个 Label；然后看到一行行的汇编代码，每一行的格式比较固定，像 &lt;code&gt;pushq&lt;/code&gt; 这样放在前面的是汇编指令，像 &lt;code&gt;%rbp&lt;/code&gt; 带百分号的是寄存器，像 &lt;code&gt;$233&lt;/code&gt; 带美元符号的是立即数，所以这些汇编代码完全可以理解成一个个基本函数的调用，其中的指令和寄存器命名可以查阅&lt;a href=&quot;http://www.x86-64.org/documentation/assembly.html&quot; target=&quot;_blank&quot; rel=&quot;external&quot;&gt;官方手册&lt;/a&gt;，下面就逐行解释一下汇编代码：&lt;/p&gt;
+&lt;figure class=&quot;highlight c&quot;&gt;&lt;table&gt;&lt;tr&gt;&lt;td class=&quot;gutter&quot;&gt;&lt;pre&gt;&lt;span class=&quot;line&quot;&gt;1&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;2&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;3&lt;/span&gt;&lt;br&gt;&lt;/pre&gt;&lt;/td&gt;&lt;td class=&quot;code&quot;&gt;&lt;pre&gt;&lt;span class=&quot;line&quot;&gt;_main:&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;  pushq	%rbp&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;  movq	%rsp, %rbp&lt;/span&gt;&lt;br&gt;&lt;/pre&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/figure&gt;
+&lt;p&gt;&lt;code&gt;%rbp&lt;/code&gt;（ Frame Base Pointer ）是栈基地址寄存器，&lt;code&gt;%rsp&lt;/code&gt; ( Frame Stack Pointer ) 栈顶地址寄存器，这俩货是栈内存管理的核心，每当进入一个函数时：&lt;/p&gt;
+&lt;ol&gt;
+&lt;li&gt;用 &lt;code&gt;pushq&lt;/code&gt; 指令将历史的 &lt;code&gt;%rbp&lt;/code&gt; 保存起来，腾出这个寄存器&lt;/li&gt;
+&lt;li&gt;用 &lt;code&gt;movq&lt;/code&gt; 指令将 &lt;code&gt;%rsp&lt;/code&gt; 的值赋值给 &lt;code&gt;%rbp&lt;/code&gt;，让基地址指向栈顶&lt;/li&gt;
+&lt;li&gt;在函数 return 前使用对应的 &lt;code&gt;popq&lt;/code&gt; 回收栈内存。&lt;/li&gt;
+&lt;/ol&gt;
+&lt;p&gt;&lt;code&gt;%rsp&lt;/code&gt; ( Frame Stack Pointer ) 负责记录栈内存的栈顶地址，和上面的 &lt;code&gt;%rbp&lt;/code&gt; 配合，一个负责栈底一个负责栈顶；&lt;code&gt;movq&lt;/code&gt; 指令就是个简单的赋值操作，相当于 &lt;code&gt;%rbp = %rsp&lt;/code&gt;，&lt;/p&gt;
+&lt;h2 id=&quot;References&quot;&gt;&lt;a href=&quot;#References&quot; class=&quot;headerlink&quot; title=&quot;References&quot;&gt;&lt;/a&gt;References&lt;/h2&gt;&lt;p&gt;&lt;a href=&quot;https://developer.apple.com/library/mac/documentation/DeveloperTools/Conceptual/LowLevelABI/130-IA-32_Function_Calling_Conventions/IA32.html&quot; target=&quot;_blank&quot; rel=&quot;external&quot;&gt;https://developer.apple.com/library/mac/documentation/DeveloperTools/Conceptual/LowLevelABI/130-IA-32_Function_Calling_Conventions/IA32.html&lt;/a&gt;&lt;br&gt;&lt;a href=&quot;https://en.wikipedia.org/wiki/Calling_convention&quot; target=&quot;_blank&quot; rel=&quot;external&quot;&gt;https://en.wikipedia.org/wiki/Calling_convention&lt;/a&gt;&lt;br&gt;&lt;a href=&quot;https://msdn.microsoft.com/en-us/library/ms235286.aspx&quot; target=&quot;_blank&quot; rel=&quot;external&quot;&gt;https://msdn.microsoft.com/en-us/library/ms235286.aspx&lt;/a&gt;&lt;/p&gt;
+&lt;p&gt;&lt;a href=&quot;https://www.mikeash.com/pyblog/friday-qa-2011-12-16-disassembling-the-assembly-part-1.html&quot; target=&quot;_blank&quot; rel=&quot;external&quot;&gt;https://www.mikeash.com/pyblog/friday-qa-2011-12-16-disassembling-the-assembly-part-1.html&lt;/a&gt;&lt;br&gt;&lt;a href=&quot;https://www.raywenderlich.com/37181/ios-assembly-tutorial&quot; target=&quot;_blank&quot; rel=&quot;external&quot;&gt;https://www.raywenderlich.com/37181/ios-assembly-tutorial&lt;/a&gt;&lt;br&gt;&lt;a href=&quot;https://www.mikeash.com/pyblog/friday-qa-2013-03-08-lets-build-nsinvocation-part-i.html&quot; target=&quot;_blank&quot; rel=&quot;external&quot;&gt;https://www.mikeash.com/pyblog/friday-qa-2013-03-08-lets-build-nsinvocation-part-i.html&lt;/a&gt;&lt;br&gt;&lt;a href=&quot;http://arigrant.com/blog/2014/2/12/why-objcmsgsend-must-be-written-in-assembly&quot; target=&quot;_blank&quot; rel=&quot;external&quot;&gt;http://arigrant.com/blog/2014/2/12/why-objcmsgsend-must-be-written-in-assembly&lt;/a&gt;&lt;/p&gt;
+</content>
+    
+    <summary type="html">
+    
+      &lt;p&gt;平时发呆时候，总喜欢脑洞一些很扯的问题，比如：我们是不是生活在一个模拟器里？时间的最小尺度是不是模拟器 CPU 的一个时钟周期？观察就会导致量子态塌陷其实是模拟器的 lazy calculation - -？时不时码农癌发作，就得赶紧去写几个 bug 压压惊。再比如说，程序
+    
+    </summary>
+    
+    
+  </entry>
+  
+  <entry>
     <title>iOS 开发中的 Self-Manager 模式</title>
     <link href="http://blog.sunnyxx.com/2015/12/19/self-manager-pattern-in-ios/"/>
     <id>http://blog.sunnyxx.com/2015/12/19/self-manager-pattern-in-ios/</id>
@@ -1121,53 +1204,6 @@
     
     
       <category term="objc的秘密" scheme="http://blog.sunnyxx.com/tags/objc%E7%9A%84%E7%A7%98%E5%AF%86/"/>
-    
-  </entry>
-  
-  <entry>
-    <title>iPhone6分辨率与适配</title>
-    <link href="http://blog.sunnyxx.com/2014/09/10/iphone6-resolution/"/>
-    <id>http://blog.sunnyxx.com/2014/09/10/iphone6-resolution/</id>
-    <published>2014-09-10T11:43:05.000Z</published>
-    <updated>2016-04-09T05:00:16.000Z</updated>
-    
-    <content type="html">&lt;h1 id=&quot;分辨率和像素&quot;&gt;&lt;a href=&quot;#分辨率和像素&quot; class=&quot;headerlink&quot; title=&quot;分辨率和像素&quot;&gt;&lt;/a&gt;分辨率和像素&lt;/h1&gt;&lt;p&gt;经新xcode6模拟器验证（分辨率为pt，像素为真实pixel）：&lt;/p&gt;
-&lt;ol&gt;
-&lt;li&gt;iPhone5分辨率320x568，像素640x1136，@2x&lt;/li&gt;
-&lt;li&gt;iPhone6分辨率375x667，像素750x1334，@2x&lt;/li&gt;
-&lt;li&gt;iPhone6 Plus分辨率414x736，像素1242x2208，@3x，（注意，在这个分辨率下渲染后，图像等比降低pixel分辨率至1080p(1080x1920)）&lt;/li&gt;
-&lt;/ol&gt;
-&lt;p&gt;&lt;img src=&quot;http://ww3.sinaimg.cn/mw690/51530583gw1ek7mqv36zxj20go099jrm.jpg&quot; alt=&quot;&quot;&gt;&lt;/p&gt;
-&lt;p&gt;PaintCode做了&lt;a href=&quot;http://www.paintcodeapp.com/news/iphone-6-screens-demystified&quot; target=&quot;_blank&quot; rel=&quot;external&quot;&gt;几个图讲解的非常明了&lt;/a&gt;&lt;/p&gt;
-&lt;h1 id=&quot;自动适配&quot;&gt;&lt;a href=&quot;#自动适配&quot; class=&quot;headerlink&quot; title=&quot;自动适配&quot;&gt;&lt;/a&gt;自动适配&lt;/h1&gt;&lt;p&gt;不处理时自动等比拉伸，如果在老工程打印屏幕frame，依然是&lt;code&gt;320x568&lt;/code&gt;&lt;br&gt;对比自动适配的和完美适配的导航栏就能看出问题：&lt;/p&gt;
-&lt;p&gt;&lt;img src=&quot;http://ww1.sinaimg.cn/large/51530583gw1ek7mze3ckrj219y060glw.jpg&quot; alt=&quot;&quot;&gt;&lt;/p&gt;
-&lt;p&gt;因为拉伸所以会有一些虚，导航栏明显比64要大，但相比3.5寸到4寸的留黑边还是好很多。&lt;br&gt;如何关闭自动适配方案呢？这个还是老思路，换启动图：  &lt;/p&gt;
-&lt;p&gt;&lt;img src=&quot;http://ww4.sinaimg.cn/mw690/51530583gw1ek7n9aqlnsj20oc08maa9.jpg&quot; alt=&quot;&quot;&gt;&lt;/p&gt;
-&lt;p&gt;除了换启动图外，不得不说的是，新Xcode中可以使用一个&lt;code&gt;xib&lt;/code&gt;来设置启动图：&lt;/p&gt;
-&lt;p&gt;&lt;img src=&quot;http://ww2.sinaimg.cn/mw690/51530583gw1ek7nce5e1uj20pe07cgmj.jpg&quot; alt=&quot;&quot;&gt;&lt;/p&gt;
-&lt;p&gt;不过这个xib不能关联任何的代码（不能自定义View的Class，不能IBOutlet，不能加Object），可以理解成这个xib就是一张截图，这个方案的好处在于可以使用到&lt;code&gt;Size Classes&lt;/code&gt;来针对不同屏幕布局这个xib（感兴趣可以看&lt;a href=&quot;http://blog.sunnyxx.com/2014/09/09/ios8-size-classes/&quot;&gt;《Size Classes初探》&lt;/a&gt;）&lt;/p&gt;
-&lt;h1 id=&quot;关于手动适配&quot;&gt;&lt;a href=&quot;#关于手动适配&quot; class=&quot;headerlink&quot; title=&quot;关于手动适配&quot;&gt;&lt;/a&gt;关于手动适配&lt;/h1&gt;&lt;p&gt;只要手动指定了启动图或者那个xib，屏幕分辨率就已经变成应有的大小了，老代码中所有关于写死frame值的代码通通倒霉，如果去手动适配就要全部适配，建议&lt;strong&gt;在找到个可行方案前先不要做修改&lt;/strong&gt;，自动适配方案还算不影响使用。  &lt;/p&gt;
-&lt;p&gt;面对4个分辨率的iPhone，建议使用&lt;code&gt;Auto Layout&lt;/code&gt;布局 + &lt;code&gt;Image Assets&lt;/code&gt;管理各个分辨率的图片 + &lt;code&gt;Interface Builder&lt;/code&gt;（xib+storyboard）构建UI，&lt;code&gt;Size Classes&lt;/code&gt;在低版本iOS系统的表现未知。想要这套手动适配方案，起码你的工程需要部署在iOS6+，还不用AutoLayout布局的会死的蛮惨。&lt;/p&gt;
-&lt;h1 id=&quot;关于Xcode6&quot;&gt;&lt;a href=&quot;#关于Xcode6&quot; class=&quot;headerlink&quot; title=&quot;关于Xcode6&quot;&gt;&lt;/a&gt;关于Xcode6&lt;/h1&gt;&lt;ol&gt;
-&lt;li&gt;模拟器路径被换成了 &lt;code&gt;~/Library/Developer/CoreSimulator/Devices/&lt;/code&gt;&lt;/li&gt;
-&lt;li&gt;xcode6中已经找不到iOS6的模拟器了，是时候说服大家放弃iOS7-了&lt;/li&gt;
-&lt;li&gt;&lt;del&gt;现在起提交App Store强制需要支持64位，是时候梳理一遍所有依赖的第三方lib，更新到64位&lt;/del&gt;&lt;/li&gt;
-&lt;/ol&gt;
-&lt;hr&gt;
-&lt;p&gt;One more thing…按这名命的规律…&lt;/p&gt;
-&lt;p&gt;&lt;code&gt;iPhone6&lt;/code&gt; -&amp;gt; &lt;code&gt;iPhone6+&lt;/code&gt; -&amp;gt; &lt;code&gt;iPhone6++&lt;/code&gt;? -&amp;gt; &lt;code&gt;iPhone6#&lt;/code&gt;?&lt;/p&gt;
-</content>
-    
-    <summary type="html">
-    
-      &lt;h1 id=&quot;分辨率和像素&quot;&gt;&lt;a href=&quot;#分辨率和像素&quot; class=&quot;headerlink&quot; title=&quot;分辨率和像素&quot;&gt;&lt;/a&gt;分辨率和像素&lt;/h1&gt;&lt;p&gt;经新xcode6模拟器验证（分辨率为pt，像素为真实pixel）：&lt;/p&gt;
-&lt;ol&gt;
-&lt;li&gt;iPhone5
-    
-    </summary>
-    
-    
-      <category term="iOS8" scheme="http://blog.sunnyxx.com/tags/iOS8/"/>
     
   </entry>
   
