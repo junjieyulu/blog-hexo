@@ -4,7 +4,7 @@
   <url>
     <loc>http://blog.sunnyxx.com/2016/05/14/clang-attributes/</loc>
     
-    <lastmod>2016-05-16T01:38:05.000Z</lastmod>
+    <lastmod>2016-05-16T05:45:41.000Z</lastmod>
     
   </url>
   
@@ -37,28 +37,7 @@
   </url>
   
   <url>
-    <loc>http://blog.sunnyxx.com/2014/08/30/objc-pre-main/</loc>
-    
-    <lastmod>2016-04-09T05:00:16.000Z</lastmod>
-    
-  </url>
-  
-  <url>
-    <loc>http://blog.sunnyxx.com/2015/09/13/class-ivar-layout/</loc>
-    
-    <lastmod>2016-04-09T05:00:16.000Z</lastmod>
-    
-  </url>
-  
-  <url>
-    <loc>http://blog.sunnyxx.com/2014/02/27/hexo_startup/</loc>
-    
-    <lastmod>2016-04-09T05:00:16.000Z</lastmod>
-    
-  </url>
-  
-  <url>
-    <loc>http://blog.sunnyxx.com/2014/03/07/hexo_customize/</loc>
+    <loc>http://blog.sunnyxx.com/2014/08/26/objc-duck-advanced/</loc>
     
     <lastmod>2016-04-09T05:00:16.000Z</lastmod>
     
@@ -72,6 +51,20 @@
   </url>
   
   <url>
+    <loc>http://blog.sunnyxx.com/2015/06/07/fullscreen-pop-gesture/</loc>
+    
+    <lastmod>2016-04-09T05:00:16.000Z</lastmod>
+    
+  </url>
+  
+  <url>
+    <loc>http://blog.sunnyxx.com/2014/03/07/hexo_customize/</loc>
+    
+    <lastmod>2016-04-09T05:00:16.000Z</lastmod>
+    
+  </url>
+  
+  <url>
     <loc>http://blog.sunnyxx.com/2015/04/15/ios-hide-grouped-tableview-header/</loc>
     
     <lastmod>2016-04-09T05:00:16.000Z</lastmod>
@@ -79,7 +72,7 @@
   </url>
   
   <url>
-    <loc>http://blog.sunnyxx.com/2015/07/04/ios-interview/</loc>
+    <loc>http://blog.sunnyxx.com/2014/02/27/hexo_startup/</loc>
     
     <lastmod>2016-04-09T05:00:16.000Z</lastmod>
     
@@ -94,6 +87,13 @@
   
   <url>
     <loc>http://blog.sunnyxx.com/2015/05/17/cell-height-calculation/</loc>
+    
+    <lastmod>2016-04-09T05:00:16.000Z</lastmod>
+    
+  </url>
+  
+  <url>
+    <loc>http://blog.sunnyxx.com/2015/07/04/ios-interview/</loc>
     
     <lastmod>2016-04-09T05:00:16.000Z</lastmod>
     
@@ -121,6 +121,13 @@
   </url>
   
   <url>
+    <loc>http://blog.sunnyxx.com/2014/09/10/iphone6-resolution/</loc>
+    
+    <lastmod>2016-04-09T05:00:16.000Z</lastmod>
+    
+  </url>
+  
+  <url>
     <loc>http://blog.sunnyxx.com/2014/04/30/ios_iterator/</loc>
     
     <lastmod>2016-04-09T05:00:16.000Z</lastmod>
@@ -142,7 +149,7 @@
   </url>
   
   <url>
-    <loc>http://blog.sunnyxx.com/2014/09/10/iphone6-resolution/</loc>
+    <loc>http://blog.sunnyxx.com/2014/09/15/objc-attribute-cleanup/</loc>
     
     <lastmod>2016-04-09T05:00:16.000Z</lastmod>
     
@@ -156,7 +163,7 @@
   </url>
   
   <url>
-    <loc>http://blog.sunnyxx.com/2014/09/15/objc-attribute-cleanup/</loc>
+    <loc>http://blog.sunnyxx.com/2015/09/13/class-ivar-layout/</loc>
     
     <lastmod>2016-04-09T05:00:16.000Z</lastmod>
     
@@ -170,42 +177,7 @@
   </url>
   
   <url>
-    <loc>http://blog.sunnyxx.com/2014/08/24/objc-duck/</loc>
-    
-    <lastmod>2016-04-09T05:00:16.000Z</lastmod>
-    
-  </url>
-  
-  <url>
-    <loc>http://blog.sunnyxx.com/2015/06/12/objc-new-features-in-2015/</loc>
-    
-    <lastmod>2016-04-09T05:00:16.000Z</lastmod>
-    
-  </url>
-  
-  <url>
-    <loc>http://blog.sunnyxx.com/2015/06/07/fullscreen-pop-gesture/</loc>
-    
-    <lastmod>2016-04-09T05:00:16.000Z</lastmod>
-    
-  </url>
-  
-  <url>
-    <loc>http://blog.sunnyxx.com/2014/08/02/objc-weird-code/</loc>
-    
-    <lastmod>2016-04-09T05:00:16.000Z</lastmod>
-    
-  </url>
-  
-  <url>
-    <loc>http://blog.sunnyxx.com/2014/03/15/objc_arc_secret/</loc>
-    
-    <lastmod>2016-04-09T05:00:16.000Z</lastmod>
-    
-  </url>
-  
-  <url>
-    <loc>http://blog.sunnyxx.com/2014/04/02/objc_dig_arc_dealloc/</loc>
+    <loc>http://blog.sunnyxx.com/2014/08/30/objc-pre-main/</loc>
     
     <lastmod>2016-04-09T05:00:16.000Z</lastmod>
     
@@ -219,6 +191,27 @@
   </url>
   
   <url>
+    <loc>http://blog.sunnyxx.com/2014/08/02/objc-weird-code/</loc>
+    
+    <lastmod>2016-04-09T05:00:16.000Z</lastmod>
+    
+  </url>
+  
+  <url>
+    <loc>http://blog.sunnyxx.com/2015/06/12/objc-new-features-in-2015/</loc>
+    
+    <lastmod>2016-04-09T05:00:16.000Z</lastmod>
+    
+  </url>
+  
+  <url>
+    <loc>http://blog.sunnyxx.com/2014/03/15/objc_arc_secret/</loc>
+    
+    <lastmod>2016-04-09T05:00:16.000Z</lastmod>
+    
+  </url>
+  
+  <url>
     <loc>http://blog.sunnyxx.com/2014/04/13/objc_dig_interface/</loc>
     
     <lastmod>2016-04-09T05:00:16.000Z</lastmod>
@@ -226,7 +219,7 @@
   </url>
   
   <url>
-    <loc>http://blog.sunnyxx.com/2014/04/22/objc_dig_nslog/</loc>
+    <loc>http://blog.sunnyxx.com/2014/04/02/objc_dig_arc_dealloc/</loc>
     
     <lastmod>2016-04-09T05:00:16.000Z</lastmod>
     
@@ -240,7 +233,21 @@
   </url>
   
   <url>
+    <loc>http://blog.sunnyxx.com/2014/04/22/objc_dig_nslog/</loc>
+    
+    <lastmod>2016-04-09T05:00:16.000Z</lastmod>
+    
+  </url>
+  
+  <url>
     <loc>http://blog.sunnyxx.com/2014/03/06/rac_1_macros/</loc>
+    
+    <lastmod>2016-04-09T05:00:16.000Z</lastmod>
+    
+  </url>
+  
+  <url>
+    <loc>http://blog.sunnyxx.com/2014/03/06/rac_0_overview/</loc>
     
     <lastmod>2016-04-09T05:00:16.000Z</lastmod>
     
@@ -282,21 +289,14 @@
   </url>
   
   <url>
-    <loc>http://blog.sunnyxx.com/2014/03/16/sublime_text_markdown/</loc>
-    
-    <lastmod>2016-04-09T05:00:16.000Z</lastmod>
-    
-  </url>
-  
-  <url>
-    <loc>http://blog.sunnyxx.com/2014/03/06/rac_0_overview/</loc>
-    
-    <lastmod>2016-04-09T05:00:16.000Z</lastmod>
-    
-  </url>
-  
-  <url>
     <loc>http://blog.sunnyxx.com/2015/12/19/self-manager-pattern-in-ios/</loc>
+    
+    <lastmod>2016-04-09T05:00:16.000Z</lastmod>
+    
+  </url>
+  
+  <url>
+    <loc>http://blog.sunnyxx.com/2014/03/16/sublime_text_markdown/</loc>
     
     <lastmod>2016-04-09T05:00:16.000Z</lastmod>
     
@@ -310,13 +310,6 @@
   </url>
   
   <url>
-    <loc>http://blog.sunnyxx.com/2015/03/29/xcode-tips/</loc>
-    
-    <lastmod>2016-04-09T05:00:16.000Z</lastmod>
-    
-  </url>
-  
-  <url>
     <loc>http://blog.sunnyxx.com/2014/03/14/xcode_plugins/</loc>
     
     <lastmod>2016-04-09T05:00:16.000Z</lastmod>
@@ -324,7 +317,14 @@
   </url>
   
   <url>
-    <loc>http://blog.sunnyxx.com/2014/08/26/objc-duck-advanced/</loc>
+    <loc>http://blog.sunnyxx.com/2015/03/29/xcode-tips/</loc>
+    
+    <lastmod>2016-04-09T05:00:16.000Z</lastmod>
+    
+  </url>
+  
+  <url>
+    <loc>http://blog.sunnyxx.com/2014/08/24/objc-duck/</loc>
     
     <lastmod>2016-04-09T05:00:16.000Z</lastmod>
     
