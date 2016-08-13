@@ -5,7 +5,7 @@
   <link href="/atom.xml" rel="self"/>
   
   <link href="http://blog.sunnyxx.com/"/>
-  <updated>2016-08-13T04:39:39.000Z</updated>
+  <updated>2016-08-13T05:06:39.000Z</updated>
   <id>http://blog.sunnyxx.com/</id>
   
   <author>
@@ -14,6 +14,66 @@
   </author>
   
   <generator uri="http://hexo.io/">Hexo</generator>
+  
+  <entry>
+    <title>重识 Objective-C Runtime - 看透 Type 与 Value</title>
+    <link href="http://blog.sunnyxx.com/2016/08/13/reunderstanding-runtime-1/"/>
+    <id>http://blog.sunnyxx.com/2016/08/13/reunderstanding-runtime-1/</id>
+    <published>2016-08-13T11:25:04.000Z</published>
+    <updated>2016-08-13T05:06:39.000Z</updated>
+    
+    <content type="html">&lt;p&gt;这是&lt;strong&gt;重识 Objective-C Runtime&lt;/strong&gt;系列文章的其中一篇：&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;a href=&quot;http://blog.sunnyxx.com/2016/08/13/reunderstanding-runtime-0/&quot;&gt;重识 Objective-C Runtime - Smalltalk 与 C 的融合&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;&lt;a href=&quot;http://blog.sunnyxx.com/2016/08/13/reunderstanding-runtime-1/&quot;&gt;重识 Objective-C Runtime - 看透 Type 与 Value&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;重识 Objective-C Runtime - 何为对象何为类&lt;/li&gt;
+&lt;li&gt;重识 Objective-C Runtime - Calling Conventions&lt;/li&gt;
+&lt;li&gt;重识 Objective-C Runtime - 能写完上面的就不错了&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h2 id=&quot;看透-Type-与-Value&quot;&gt;&lt;a href=&quot;#看透-Type-与-Value&quot; class=&quot;headerlink&quot; title=&quot;看透 Type 与 Value&quot;&gt;&lt;/a&gt;看透 Type 与 Value&lt;/h2&gt;&lt;p&gt;对于 C 语言来说，Type 就个比较虚幻的东西，它唯一的目的便是&lt;strong&gt;让编译器知道一段数据的长度，来决定如何存取&lt;/strong&gt;，举个例子：&lt;/p&gt;
+&lt;figure class=&quot;highlight c&quot;&gt;&lt;table&gt;&lt;tr&gt;&lt;td class=&quot;gutter&quot;&gt;&lt;pre&gt;&lt;span class=&quot;line&quot;&gt;1&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;2&lt;/span&gt;&lt;br&gt;&lt;/pre&gt;&lt;/td&gt;&lt;td class=&quot;code&quot;&gt;&lt;pre&gt;&lt;span class=&quot;line&quot;&gt;&lt;span class=&quot;keyword&quot;&gt;int&lt;/span&gt; i = &lt;span class=&quot;number&quot;&gt;123&lt;/span&gt;;&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;&lt;span class=&quot;keyword&quot;&gt;char&lt;/span&gt; c = (char)i;&lt;/span&gt;&lt;br&gt;&lt;/pre&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/figure&gt;
+&lt;p&gt;这段代码声明了一个 int 类型的变量和一个 char 类型的变量，有初始化和类型强转过程，在 x86_64 架构下，这两行代码的汇编如下：&lt;/p&gt;
+&lt;figure class=&quot;highlight c&quot;&gt;&lt;table&gt;&lt;tr&gt;&lt;td class=&quot;gutter&quot;&gt;&lt;pre&gt;&lt;span class=&quot;line&quot;&gt;1&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;2&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;3&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;4&lt;/span&gt;&lt;br&gt;&lt;/pre&gt;&lt;/td&gt;&lt;td class=&quot;code&quot;&gt;&lt;pre&gt;&lt;span class=&quot;line&quot;&gt;movl $&lt;span class=&quot;number&quot;&gt;123&lt;/span&gt;, &lt;span class=&quot;number&quot;&gt;-4&lt;/span&gt;(%rbp)&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;movl &lt;span class=&quot;number&quot;&gt;-4&lt;/span&gt;(%rbp), %eax&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;movb %al, %cl&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;movb %cl, &lt;span class=&quot;number&quot;&gt;-5&lt;/span&gt;(%rbp)&lt;/span&gt;&lt;br&gt;&lt;/pre&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/figure&gt;
+&lt;p&gt;汇编看起来混乱，但却能最真实的反映出程序的运行过程，逐行解释下：&lt;/p&gt;
+&lt;figure class=&quot;highlight plain&quot;&gt;&lt;table&gt;&lt;tr&gt;&lt;td class=&quot;gutter&quot;&gt;&lt;pre&gt;&lt;span class=&quot;line&quot;&gt;1&lt;/span&gt;&lt;br&gt;&lt;/pre&gt;&lt;/td&gt;&lt;td class=&quot;code&quot;&gt;&lt;pre&gt;&lt;span class=&quot;line&quot;&gt;movl $123, -4(%rbp)&lt;/span&gt;&lt;br&gt;&lt;/pre&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/figure&gt;
+&lt;p&gt;move 指令就是简单的值拷贝，这条指令中出现的 &lt;code&gt;movl&lt;/code&gt; 表示按低 32 位的长度来拷贝（也就是一个 int 的长度），与之相似的还有 8 位的 &lt;code&gt;movb&lt;/code&gt;（char）、16 位的 &lt;code&gt;movw&lt;/code&gt; (short)、64 位的 &lt;code&gt;movq&lt;/code&gt; (long in 64) 等；&lt;code&gt;$123&lt;/code&gt; 即字面常量值；&lt;code&gt;-4(%rbp)&lt;/code&gt; 代表 base pointer - 栈基地址寄存器，偏移 4 字节的位置。这个指令执行后内存如下所示：&lt;br&gt;&lt;img src=&quot;http://7xtel4.com1.z0.glb.clouddn.com/2016-08-13-屏幕快照 2016-07-27 下午10.32.46.png&quot; alt=&quot;&quot;&gt;&lt;/p&gt;
+&lt;figure class=&quot;highlight plain&quot;&gt;&lt;table&gt;&lt;tr&gt;&lt;td class=&quot;gutter&quot;&gt;&lt;pre&gt;&lt;span class=&quot;line&quot;&gt;1&lt;/span&gt;&lt;br&gt;&lt;/pre&gt;&lt;/td&gt;&lt;td class=&quot;code&quot;&gt;&lt;pre&gt;&lt;span class=&quot;line&quot;&gt;movl -4(%rbp), %eax&lt;/span&gt;&lt;br&gt;&lt;/pre&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/figure&gt;
+&lt;p&gt;将刚才 4 字节长度内存赋值给 &lt;code&gt;%eax&lt;/code&gt; 寄存器，它是最常用的通用寄存器之一，名为 accumulator，在 64 位架构下，&lt;code&gt;rax&lt;/code&gt; 表示这个寄存器的完全体，&lt;code&gt;eax&lt;/code&gt; 表示它的低 32 位，&lt;code&gt;ax&lt;/code&gt; 表示低 16 位，&lt;code&gt;ah&lt;/code&gt; 表示第 8~16 位，&lt;code&gt;al&lt;/code&gt; 表示最低的 8 位。这样抠门的设计一部分因为兼容历史的 32 架构，一方面也是为了更充分利用寄存器这个宝贵的资源：&lt;/p&gt;
+&lt;p&gt;&lt;img src=&quot;http://7xtel4.com1.z0.glb.clouddn.com/2016-08-13-屏幕快照 2016-07-27 下午10.51.59.png&quot; alt=&quot;&quot;&gt;&lt;/p&gt;
+&lt;figure class=&quot;highlight plain&quot;&gt;&lt;table&gt;&lt;tr&gt;&lt;td class=&quot;gutter&quot;&gt;&lt;pre&gt;&lt;span class=&quot;line&quot;&gt;1&lt;/span&gt;&lt;br&gt;&lt;/pre&gt;&lt;/td&gt;&lt;td class=&quot;code&quot;&gt;&lt;pre&gt;&lt;span class=&quot;line&quot;&gt;movb %al, %cl&lt;/span&gt;&lt;br&gt;&lt;/pre&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/figure&gt;
+&lt;p&gt;按 8 位长度 (char) 将 a 寄存器的最低 8 位移动到 c 寄存器（count register）的低 8 位。这一个指令就在做 int 到 char 的类型转换，把 123 存在寄存器的低 32 位上，再把寄存器的最低 8 位取出来，相当于把 00000000000000000000000001111011 截断成了 01111011。&lt;/p&gt;
+&lt;figure class=&quot;highlight plain&quot;&gt;&lt;table&gt;&lt;tr&gt;&lt;td class=&quot;gutter&quot;&gt;&lt;pre&gt;&lt;span class=&quot;line&quot;&gt;1&lt;/span&gt;&lt;br&gt;&lt;/pre&gt;&lt;/td&gt;&lt;td class=&quot;code&quot;&gt;&lt;pre&gt;&lt;span class=&quot;line&quot;&gt;movb %cl, -5(%rbp)&lt;/span&gt;&lt;br&gt;&lt;/pre&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/figure&gt;
+&lt;p&gt;最后，再把刚才的结果按 8 字节的长度拷贝到 %rbp 偏移 5 的位置，完成这个 char 类型栈变量的赋值：&lt;br&gt;&lt;img src=&quot;http://7xtel4.com1.z0.glb.clouddn.com/2016-08-13-屏幕快照 2016-07-27 下午11.10.45.png&quot; alt=&quot;&quot;&gt;&lt;/p&gt;
+&lt;p&gt;因此，对于 C 这种静态语言，Type 信息只用于编译器解析，除了静态检查外还影响生成：&lt;/p&gt;
+&lt;ol&gt;
+&lt;li&gt;相应长度的指令 (是 movq、movl 还是 movb ?)&lt;/li&gt;
+&lt;li&gt;寄存器长度的选用（是 rax、eax 还是 al ?）&lt;/li&gt;
+&lt;li&gt;栈变量内存大小的确定，也可以说是 sp 的位置（ sp 表示 Stack Pointer， 它和 Base Pointer 配合管理栈内存的分配与回收，所谓“分配”栈内存只是用如 &lt;code&gt;subq $32, %rsp&lt;/code&gt; 的指令将 sp 向低地址移动）&lt;/li&gt;
+&lt;/ol&gt;
+&lt;p&gt;然而，对于动态语言，Type 不仅在编译期起到上述作用，&lt;strong&gt;还需要保留到运行时，让动态调用得以实现&lt;/strong&gt;，被称作 &lt;code&gt;Type Encodings&lt;/code&gt;，对于 Objective-C 所有 Type 的编码，都可以在&lt;a href=&quot;https://developer.apple.com/library/mac/documentation/Cocoa/Conceptual/ObjCRuntimeGuide/Articles/ocrtTypeEncodings.html&quot; target=&quot;_blank&quot; rel=&quot;external&quot;&gt;这个官方文档&lt;/a&gt;中查到，里面的编码和用 &lt;code&gt;@encode()&lt;/code&gt; 生成的一致，比如：&lt;/p&gt;
+&lt;figure class=&quot;highlight plain&quot;&gt;&lt;table&gt;&lt;tr&gt;&lt;td class=&quot;gutter&quot;&gt;&lt;pre&gt;&lt;span class=&quot;line&quot;&gt;1&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;2&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;3&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;4&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;5&lt;/span&gt;&lt;br&gt;&lt;/pre&gt;&lt;/td&gt;&lt;td class=&quot;code&quot;&gt;&lt;pre&gt;&lt;span class=&quot;line&quot;&gt;@encode(int) =&amp;gt; &amp;quot;i&amp;quot;&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;@encode(float) =&amp;gt; &amp;quot;f&amp;quot;&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;@encode(id) =&amp;gt; &amp;quot;@&amp;quot;&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;@encode(SEL) =&amp;gt; &amp;quot;:&amp;quot;&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;@encode(CGRect) =&amp;gt; &amp;quot;&amp;#123;CGRect=&amp;#123;CGPoint=dd&amp;#125;&amp;#123;CGSize=dd&amp;#125;&amp;#125;&amp;quot; // 64&lt;/span&gt;&lt;br&gt;&lt;/pre&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/figure&gt;
+&lt;p&gt;Objective-C Class 中每个实例变量的 Type 信息全部被编码，Runtime 也提供了 &lt;code&gt;ivar_getTypeEncoding&lt;/code&gt; 来访问。&lt;br&gt;同时，为支持消息的转发和动态调用，Objective-C Method 的 Type 信息也被以 “返回值 Type + 参数 Types” 的形式&lt;strong&gt;组合编码&lt;/strong&gt;，还需要考虑到 &lt;code&gt;self&lt;/code&gt; 和 &lt;code&gt;_cmd&lt;/code&gt; 这两个隐含参数：&lt;/p&gt;
+&lt;figure class=&quot;highlight plain&quot;&gt;&lt;table&gt;&lt;tr&gt;&lt;td class=&quot;gutter&quot;&gt;&lt;pre&gt;&lt;span class=&quot;line&quot;&gt;1&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;2&lt;/span&gt;&lt;br&gt;&lt;/pre&gt;&lt;/td&gt;&lt;td class=&quot;code&quot;&gt;&lt;pre&gt;&lt;span class=&quot;line&quot;&gt;- (void)foo; =&amp;gt; &amp;quot;v@:&amp;quot;&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;- (int)barWithBaz:(double)baz; =&amp;gt; &amp;quot;iv@:d&amp;quot;&lt;/span&gt;&lt;br&gt;&lt;/pre&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/figure&gt;
+&lt;blockquote&gt;
+&lt;p&gt;注：上面的方法的 Encoding 使用新的格式，旧的格式中包含调用栈大小和布局信息，如 &lt;code&gt;i24@0:8i16i20&lt;/code&gt;，表示调用栈帧共 24 字节大小，后面每个参数跟着的数字表示该参数在调用栈的偏移值，在 x86_64 和 ARM 成为主流后，调用的 Calling Conventions 发生巨大变化，开始借助寄存器传参，所以在“参数压栈”时代的这种编码方式逐渐被废弃。&lt;/p&gt;
+&lt;/blockquote&gt;
+&lt;p&gt;方法的编码可以使用 &lt;code&gt;method_getTypeEncoding&lt;/code&gt; 获取，在 Cocoa 层，被 &lt;code&gt;NSMethodSignature&lt;/code&gt; 封装，并提供了一些便捷的解析方法。&lt;/p&gt;
+&lt;p&gt;多说一句，纯 Swift 声称自己是静态的语言，因为在编译后，任何结构都会被 &lt;code&gt;Name Mangling&lt;/code&gt; 压缩成一个符号，比如下面的方法：&lt;/p&gt;
+&lt;figure class=&quot;highlight swift&quot;&gt;&lt;table&gt;&lt;tr&gt;&lt;td class=&quot;gutter&quot;&gt;&lt;pre&gt;&lt;span class=&quot;line&quot;&gt;1&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;2&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;3&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;4&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;5&lt;/span&gt;&lt;br&gt;&lt;/pre&gt;&lt;/td&gt;&lt;td class=&quot;code&quot;&gt;&lt;pre&gt;&lt;span class=&quot;line&quot;&gt;&lt;span class=&quot;class&quot;&gt;&lt;span class=&quot;keyword&quot;&gt;class&lt;/span&gt; &lt;span class=&quot;title&quot;&gt;Sark&lt;/span&gt; &lt;/span&gt;&amp;#123;&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;    &lt;span class=&quot;function&quot;&gt;&lt;span class=&quot;keyword&quot;&gt;func&lt;/span&gt; &lt;span class=&quot;title&quot;&gt;foo&lt;/span&gt;&lt;span class=&quot;params&quot;&gt;(bar: Int)&lt;/span&gt;&lt;/span&gt; -&amp;gt; &lt;span class=&quot;type&quot;&gt;Int&lt;/span&gt; &amp;#123;&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;        &lt;span class=&quot;keyword&quot;&gt;return&lt;/span&gt; bar;&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;    &amp;#125;&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;&amp;#125;&lt;/span&gt;&lt;br&gt;&lt;/pre&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/figure&gt;
+&lt;p&gt;经过 Name Mangling 的符号是 &lt;code&gt;_TFC12TestSwift4Sark3foofT3barSi_Si&lt;/code&gt;，虽然把结构都拍扁了，但该有的信息都在，Module、Class、Method、参数和返回值类型等，按照一定的格式进行了编码，感兴趣可以看&lt;a href=&quot;https://mikeash.com/pyblog/friday-qa-2014-08-15-swift-name-mangling.html&quot; target=&quot;_blank&quot; rel=&quot;external&quot;&gt;这篇文章&lt;/a&gt;。&lt;/p&gt;
+&lt;h2 id=&quot;来罐可乐并催更&quot;&gt;&lt;a href=&quot;#来罐可乐并催更&quot; class=&quot;headerlink&quot; title=&quot;来罐可乐并催更&quot;&gt;&lt;/a&gt;来罐可乐并催更&lt;/h2&gt;&lt;p&gt;&lt;img src=&quot;http://ww2.sinaimg.cn/large/51530583jw1et2mwz8hqzj20af0camy7.jpg&quot; alt=&quot;&quot;&gt;&lt;/p&gt;
+</content>
+    
+    <summary type="html">
+    
+      &lt;p&gt;这是&lt;strong&gt;重识 Objective-C Runtime&lt;/strong&gt;系列文章的其中一篇：&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;a href=&quot;http://blog.sunnyxx.com/2016/08/13/reunderstanding-runtime-0/&quot;&gt;
+    
+    </summary>
+    
+    
+  </entry>
   
   <entry>
     <title>重识 Objective-C Runtime - Smalltalk 与 C 的融合</title>
@@ -1143,65 +1203,6 @@
     
     
       <category term="objc刨根问底" scheme="http://blog.sunnyxx.com/tags/objc%E5%88%A8%E6%A0%B9%E9%97%AE%E5%BA%95/"/>
-    
-  </entry>
-  
-  <entry>
-    <title>( ) -&gt; ( )</title>
-    <link href="http://blog.sunnyxx.com/2014/10/14/fp-essential/"/>
-    <id>http://blog.sunnyxx.com/2014/10/14/fp-essential/</id>
-    <published>2014-10-14T11:44:42.000Z</published>
-    <updated>2016-04-09T05:00:16.000Z</updated>
-    
-    <content type="html">&lt;h1 id=&quot;我是前言&quot;&gt;&lt;a href=&quot;#我是前言&quot; class=&quot;headerlink&quot; title=&quot;我是前言&quot;&gt;&lt;/a&gt;我是前言&lt;/h1&gt;&lt;p&gt;&lt;code&gt;() -&amp;gt; ()&lt;/code&gt;不是什么表情符号，而是一种高度抽象的编程范式，它表示了一个函数式的编程思想，即&lt;code&gt;值&lt;/code&gt;的变化过程。本文将从&lt;code&gt;swift&lt;/code&gt;语言入手分析，元组，函数，闭包等的设计对它进行解释，并阐释swift语言设计的大局观。随后分享一个&lt;code&gt;Reactive Cocoa&lt;/code&gt;作者的Talk中的编程思想。&lt;/p&gt;
-&lt;h1 id=&quot;编程的核心&quot;&gt;&lt;a href=&quot;#编程的核心&quot; class=&quot;headerlink&quot; title=&quot;编程的核心&quot;&gt;&lt;/a&gt;编程的核心&lt;/h1&gt;&lt;p&gt;编程的无非两件事，&lt;code&gt;数据&lt;/code&gt;和&lt;code&gt;运算&lt;/code&gt;。&lt;br&gt;放在计算机硬件，是内存和CPU；&lt;br&gt;放在C语言，是结构体和函数（基本类型本质上就是一个只有一个字段的结构体）；&lt;br&gt;放在面向对象的语言，是类和消息；&lt;br&gt;放在函数式语言，就是值和函数了&lt;/p&gt;
-&lt;p&gt;如果用&lt;code&gt;()&lt;/code&gt;表示数据，&lt;code&gt;-&amp;gt;&lt;/code&gt;表示运算，也是醉了&lt;/p&gt;
-&lt;h1 id=&quot;从Swift说起&quot;&gt;&lt;a href=&quot;#从Swift说起&quot; class=&quot;headerlink&quot; title=&quot;从Swift说起&quot;&gt;&lt;/a&gt;从Swift说起&lt;/h1&gt;&lt;h2 id=&quot;gt-表示运算过程&quot;&gt;&lt;a href=&quot;#gt-表示运算过程&quot; class=&quot;headerlink&quot; title=&quot;-&amp;gt;表示运算过程&quot;&gt;&lt;/a&gt;-&amp;gt;表示运算过程&lt;/h2&gt;&lt;p&gt;熟悉swift的同学肯定能联想到swift中函数的表示方法&lt;/p&gt;
-&lt;figure class=&quot;highlight swift&quot;&gt;&lt;table&gt;&lt;tr&gt;&lt;td class=&quot;gutter&quot;&gt;&lt;pre&gt;&lt;span class=&quot;line&quot;&gt;1&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;2&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;3&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;4&lt;/span&gt;&lt;br&gt;&lt;/pre&gt;&lt;/td&gt;&lt;td class=&quot;code&quot;&gt;&lt;pre&gt;&lt;span class=&quot;line&quot;&gt;&lt;span class=&quot;function&quot;&gt;&lt;span class=&quot;keyword&quot;&gt;func&lt;/span&gt; &lt;span class=&quot;title&quot;&gt;foo&lt;/span&gt;&lt;span class=&quot;params&quot;&gt;(number: Int)&lt;/span&gt;&lt;/span&gt; -&amp;gt; &lt;span class=&quot;type&quot;&gt;Int&lt;/span&gt; &amp;#123;&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;    &lt;span class=&quot;keyword&quot;&gt;return&lt;/span&gt; &lt;span class=&quot;number&quot;&gt;1&lt;/span&gt;&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;&amp;#125;&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;&lt;span class=&quot;keyword&quot;&gt;let&lt;/span&gt; f = foo &lt;span class=&quot;comment&quot;&gt;// f的类型为 (Int) -&amp;gt; Int&lt;/span&gt;&lt;/span&gt;&lt;br&gt;&lt;/pre&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/figure&gt;
-&lt;p&gt;把参数通通去掉之后就成了&lt;code&gt;() -&amp;gt; ()&lt;/code&gt;&lt;/p&gt;
-&lt;figure class=&quot;highlight swift&quot;&gt;&lt;table&gt;&lt;tr&gt;&lt;td class=&quot;gutter&quot;&gt;&lt;pre&gt;&lt;span class=&quot;line&quot;&gt;1&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;2&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;3&lt;/span&gt;&lt;br&gt;&lt;/pre&gt;&lt;/td&gt;&lt;td class=&quot;code&quot;&gt;&lt;pre&gt;&lt;span class=&quot;line&quot;&gt;&lt;span class=&quot;function&quot;&gt;&lt;span class=&quot;keyword&quot;&gt;func&lt;/span&gt; &lt;span class=&quot;title&quot;&gt;foo&lt;/span&gt; &lt;span class=&quot;params&quot;&gt;()&lt;/span&gt;&lt;/span&gt; -&amp;gt; () &amp;#123;&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;    &lt;span class=&quot;comment&quot;&gt;// ...&lt;/span&gt;&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;&amp;#125;&lt;/span&gt;&lt;br&gt;&lt;/pre&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/figure&gt;
-&lt;p&gt;像好多吐槽swift语法的人一样，起初我也不理解为什么用这么个奇葩的&lt;code&gt;-&amp;gt;&lt;/code&gt;来表示返回值，其实它并非表示返回值，而是表示&lt;code&gt;运算过程&lt;/code&gt;，从入参到返回值的过程。按这个思路来看，把返回值写在函数声明前面倒是有点说不通了。&lt;/p&gt;
-&lt;h2 id=&quot;元组表示所有的值&quot;&gt;&lt;a href=&quot;#元组表示所有的值&quot; class=&quot;headerlink&quot; title=&quot;元组表示所有的值&quot;&gt;&lt;/a&gt;元组表示所有的值&lt;/h2&gt;&lt;p&gt;再来说说这个&lt;code&gt;()&lt;/code&gt;，在swift里面表示元组（tuple），值得一提的是，swift里面任何值都是一个tuple，且一共有三种Tuple：&lt;/p&gt;
-&lt;ul&gt;
-&lt;li&gt;&lt;strong&gt;0-Tuple&lt;/strong&gt;表示空值，也就是&lt;code&gt;Void&lt;/code&gt; （Void是&lt;code&gt;()&lt;/code&gt;的别名）&lt;/li&gt;
-&lt;li&gt;&lt;p&gt;&lt;strong&gt;1-Tuple&lt;/strong&gt;表示任意一个类型的实例（Int、String、对象、枚举等等），也就是说&lt;code&gt;Int&lt;/code&gt;其实是一个&lt;code&gt;(Int)&lt;/code&gt;，&lt;code&gt;String&lt;/code&gt;是一个&lt;code&gt;(String)&lt;/code&gt;，以此类推，所以有下面的写法：&lt;/p&gt;
-  &lt;figure class=&quot;highlight swift&quot;&gt;&lt;table&gt;&lt;tr&gt;&lt;td class=&quot;gutter&quot;&gt;&lt;pre&gt;&lt;span class=&quot;line&quot;&gt;1&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;2&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;3&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;4&lt;/span&gt;&lt;br&gt;&lt;/pre&gt;&lt;/td&gt;&lt;td class=&quot;code&quot;&gt;&lt;pre&gt;&lt;span class=&quot;line&quot;&gt;&lt;span class=&quot;keyword&quot;&gt;var&lt;/span&gt; i: &lt;span class=&quot;type&quot;&gt;Int&lt;/span&gt; = &lt;span class=&quot;number&quot;&gt;1&lt;/span&gt;&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;i.&lt;span class=&quot;number&quot;&gt;0.0&lt;/span&gt;.&lt;span class=&quot;number&quot;&gt;0.0&lt;/span&gt;.&lt;span class=&quot;number&quot;&gt;0.0&lt;/span&gt; &lt;span class=&quot;comment&quot;&gt;// 1&lt;/span&gt;&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;&lt;span class=&quot;keyword&quot;&gt;var&lt;/span&gt; a = [&lt;span class=&quot;string&quot;&gt;&quot;A&quot;&lt;/span&gt;, &lt;span class=&quot;string&quot;&gt;&quot;B&quot;&lt;/span&gt;, &lt;span class=&quot;string&quot;&gt;&quot;C&quot;&lt;/span&gt;]&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;a.&lt;span class=&quot;number&quot;&gt;0.0&lt;/span&gt;.&lt;span class=&quot;number&quot;&gt;0.0&lt;/span&gt;.&lt;span class=&quot;number&quot;&gt;0.0&lt;/span&gt; &lt;span class=&quot;comment&quot;&gt;// [&quot;A&quot;, &quot;B&quot;, &quot;C&quot;]&lt;/span&gt;&lt;/span&gt;&lt;br&gt;&lt;/pre&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/figure&gt;
-&lt;/li&gt;
-&lt;li&gt;&lt;p&gt;&lt;strong&gt;N-Tuple&lt;/strong&gt;表示两个以上值的组合，如&lt;code&gt;(2, &amp;quot;B&amp;quot;)&lt;/code&gt;&lt;/p&gt;
-&lt;/li&gt;
-&lt;/ul&gt;
-&lt;h2 id=&quot;func是一种特殊的block&quot;&gt;&lt;a href=&quot;#func是一种特殊的block&quot; class=&quot;headerlink&quot; title=&quot;func是一种特殊的block&quot;&gt;&lt;/a&gt;func是一种特殊的block&lt;/h2&gt;&lt;p&gt;一开始我认为block是一种特殊的func，后来发现反过来理解更加合理。  &lt;/p&gt;
-&lt;figure class=&quot;highlight swift&quot;&gt;&lt;table&gt;&lt;tr&gt;&lt;td class=&quot;gutter&quot;&gt;&lt;pre&gt;&lt;span class=&quot;line&quot;&gt;1&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;2&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;3&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;4&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;5&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;6&lt;/span&gt;&lt;br&gt;&lt;/pre&gt;&lt;/td&gt;&lt;td class=&quot;code&quot;&gt;&lt;pre&gt;&lt;span class=&quot;line&quot;&gt;&lt;span class=&quot;class&quot;&gt;&lt;span class=&quot;keyword&quot;&gt;class&lt;/span&gt; &lt;span class=&quot;title&quot;&gt;Foo&lt;/span&gt; &lt;/span&gt;&amp;#123;&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;    &lt;span class=&quot;function&quot;&gt;&lt;span class=&quot;keyword&quot;&gt;func&lt;/span&gt; &lt;span class=&quot;title&quot;&gt;bar&lt;/span&gt;&lt;span class=&quot;params&quot;&gt;(i: Int)&lt;/span&gt;&lt;/span&gt; &amp;#123;&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;       &lt;span class=&quot;comment&quot;&gt;// ...&lt;/span&gt;&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;    &amp;#125;&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;&amp;#125;&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;&lt;span class=&quot;keyword&quot;&gt;var&lt;/span&gt; f = &lt;span class=&quot;type&quot;&gt;Foo&lt;/span&gt;.bar&lt;/span&gt;&lt;br&gt;&lt;/pre&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/figure&gt;
-&lt;p&gt;其中f的类型为&lt;code&gt;Foo -&amp;gt; (Int) -&amp;gt; ()&lt;/code&gt;，用括号结合一下更好理解：&lt;code&gt;Foo -&amp;gt; (Int -&amp;gt; ())&lt;/code&gt;，外层传入一个Foo的实例，返回值是一个&lt;code&gt;(Int) -&amp;gt; ()&lt;/code&gt;的函数&lt;/p&gt;
-&lt;p&gt;知道这一点，上面的方法用一个block也能轻松搞定：&lt;/p&gt;
-&lt;figure class=&quot;highlight swift&quot;&gt;&lt;table&gt;&lt;tr&gt;&lt;td class=&quot;gutter&quot;&gt;&lt;pre&gt;&lt;span class=&quot;line&quot;&gt;1&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;2&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;3&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;4&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;5&lt;/span&gt;&lt;br&gt;&lt;/pre&gt;&lt;/td&gt;&lt;td class=&quot;code&quot;&gt;&lt;pre&gt;&lt;span class=&quot;line&quot;&gt;&lt;span class=&quot;keyword&quot;&gt;var&lt;/span&gt; bar = &amp;#123;(f: &lt;span class=&quot;type&quot;&gt;Foo&lt;/span&gt;) -&amp;gt; (&lt;span class=&quot;type&quot;&gt;Int&lt;/span&gt;) -&amp;gt; () &lt;span class=&quot;keyword&quot;&gt;in&lt;/span&gt;&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;    &lt;span class=&quot;keyword&quot;&gt;return&lt;/span&gt; &amp;#123;(i: &lt;span class=&quot;type&quot;&gt;Int&lt;/span&gt;) &lt;span class=&quot;keyword&quot;&gt;in&lt;/span&gt;&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;        &lt;span class=&quot;comment&quot;&gt;// ...&lt;/span&gt;&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;    &amp;#125;&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;&amp;#125;&lt;/span&gt;&lt;br&gt;&lt;/pre&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/figure&gt;
-&lt;p&gt;所以说，一个&lt;code&gt;func&lt;/code&gt;只是在一个&lt;code&gt;class&lt;/code&gt;（或struct、enum）作用域中一个特殊的block罢了，隐式的被传入了第一层的&lt;code&gt;self&lt;/code&gt;参数而已。再多想一步，假如外部有一个全局变量，在&lt;code&gt;func&lt;/code&gt;中是可以访问，多么像block的捕获外部变量呢。&lt;/p&gt;
-&lt;h2 id=&quot;swift函数式世界观&quot;&gt;&lt;a href=&quot;#swift函数式世界观&quot; class=&quot;headerlink&quot; title=&quot;swift函数式世界观&quot;&gt;&lt;/a&gt;swift函数式世界观&lt;/h2&gt;&lt;p&gt;讲到这儿，swift中的&lt;code&gt;数据&lt;/code&gt;+&lt;code&gt;运算&lt;/code&gt;就可以被抽象成：&lt;code&gt;() -&amp;gt; ()&lt;/code&gt;了，一切结构、函数、block，各种调用，本质上都可以被归纳成&lt;strong&gt;从一个元组经过运算得到另一个元组的过程&lt;/strong&gt;，这不就是&lt;code&gt;函数式编程&lt;/code&gt;么。&lt;br&gt;当然，这个思想也不孤单，&lt;code&gt;java script&lt;/code&gt;中也用&lt;code&gt;=&amp;gt;&lt;/code&gt;来表示相同的概念&lt;/p&gt;
-&lt;h1 id=&quot;Reactive-Cocoa作者谈未来&quot;&gt;&lt;a href=&quot;#Reactive-Cocoa作者谈未来&quot; class=&quot;headerlink&quot; title=&quot;Reactive Cocoa作者谈未来&quot;&gt;&lt;/a&gt;Reactive Cocoa作者谈未来&lt;/h1&gt;&lt;p&gt;说完了swift，再来说&lt;code&gt;Reactive Cocoa&lt;/code&gt;&lt;br&gt;RAC可以说是对objc语言和runtime机制使用最深刻的开源库之一了，可见作者对水平。他的&lt;code&gt;《The Future of Reactive Cocoa》&lt;/code&gt;的Talk很有趣，pdf可以从&lt;a href=&quot;https://github.com/jspahrsummers/the-future-of-reactivecocoa&quot; target=&quot;_blank&quot; rel=&quot;external&quot;&gt;这个git地址下载&lt;/a&gt;&lt;/p&gt;
-&lt;p&gt;他把函数式编程中的Event分成：&lt;/p&gt;
-&lt;ul&gt;
-&lt;li&gt;Observer（Push）: &lt;code&gt;Event -&amp;gt; ()&lt;/code&gt;&lt;/li&gt;
-&lt;li&gt;Obserable（Push）: &lt;code&gt;(Event -&amp;gt; ()) -&amp;gt; ()&lt;/code&gt;&lt;/li&gt;
-&lt;li&gt;Enumerator（Pull）: &lt;code&gt;() -&amp;gt; Event&lt;/code&gt;&lt;/li&gt;
-&lt;li&gt;Enumerable（Pull）: &lt;code&gt;() -&amp;gt; (() -&amp;gt; Event)&lt;/code&gt;&lt;/li&gt;
-&lt;/ul&gt;
-&lt;p&gt;先不说具体含义，这个抽象范式的表示方法就与上面提到一致。熟悉RAC的同学将会对上面精简的概括叫绝。&lt;br&gt;拿第二个，Obserable来说，这就是RAC中的&lt;code&gt;RACSignal&lt;/code&gt;，后面的范式表示这个Event可以串联起来（当返回值的也是一个同样结构的函数时）：&lt;br&gt;&lt;code&gt;(Event1 -&amp;gt; ()) -&amp;gt; (Event2 -&amp;gt; ()) -&amp;gt;...-&amp;gt; (EventN -&amp;gt; ()) -&amp;gt; ()&lt;/code&gt;&lt;/p&gt;
-&lt;h2 id=&quot;不寻常意义的Enumerator&quot;&gt;&lt;a href=&quot;#不寻常意义的Enumerator&quot; class=&quot;headerlink&quot; title=&quot;不寻常意义的Enumerator&quot;&gt;&lt;/a&gt;不寻常意义的Enumerator&lt;/h2&gt;&lt;p&gt;这里的Enumerator不是通常意义上的&lt;code&gt;for-in&lt;/code&gt;语句中使用的枚举器，而是代表了一种&lt;code&gt;延时计算&lt;/code&gt;的思想：不到最后一刻，这个值一直不被计算出来，向它套用的函数也都将延时到最后才依次计算。其实swift在语言基本库中就实现了它，名为&lt;code&gt;LazyBidirectionalCollection&lt;/code&gt;，如一个字典：&lt;/p&gt;
-&lt;figure class=&quot;highlight swift&quot;&gt;&lt;table&gt;&lt;tr&gt;&lt;td class=&quot;gutter&quot;&gt;&lt;pre&gt;&lt;span class=&quot;line&quot;&gt;1&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;2&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;3&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;4&lt;/span&gt;&lt;br&gt;&lt;/pre&gt;&lt;/td&gt;&lt;td class=&quot;code&quot;&gt;&lt;pre&gt;&lt;span class=&quot;line&quot;&gt;&lt;span class=&quot;keyword&quot;&gt;var&lt;/span&gt; dict = [&lt;span class=&quot;string&quot;&gt;&quot;A&quot;&lt;/span&gt;: &lt;span class=&quot;number&quot;&gt;1&lt;/span&gt;, &lt;span class=&quot;string&quot;&gt;&quot;B&quot;&lt;/span&gt;: &lt;span class=&quot;number&quot;&gt;2&lt;/span&gt;]&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;&lt;span class=&quot;keyword&quot;&gt;var&lt;/span&gt; generator = dict.keys.&lt;span class=&quot;built_in&quot;&gt;map&lt;/span&gt;(&amp;#123;$&lt;span class=&quot;number&quot;&gt;0&lt;/span&gt;.lowercaseString&amp;#125;).generate()&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;generator.next()! &lt;span class=&quot;comment&quot;&gt;// &quot;b&quot; （这里进行一次计算）&lt;/span&gt;&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;generator.next()! &lt;span class=&quot;comment&quot;&gt;// &quot;a&quot; （这里进行后一次计算）&lt;/span&gt;&lt;/span&gt;&lt;br&gt;&lt;/pre&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/figure&gt;
-&lt;h1 id=&quot;跑题了，往回拉拉&quot;&gt;&lt;a href=&quot;#跑题了，往回拉拉&quot; class=&quot;headerlink&quot; title=&quot;跑题了，往回拉拉&quot;&gt;&lt;/a&gt;跑题了，往回拉拉&lt;/h1&gt;&lt;p&gt;&lt;code&gt;()&lt;/code&gt;表示任意的值&lt;br&gt;&lt;code&gt;-&amp;gt;&lt;/code&gt;表示运算过程&lt;br&gt;所以&lt;code&gt;() -&amp;gt; ()&lt;/code&gt;表示一个任意的函数  &lt;/p&gt;
-&lt;p&gt;函数作为一等公民，可以作为值进行传递，所以上面的范式中的值也可以是函数，于是衍生出&lt;br&gt;&lt;code&gt;(() -&amp;gt; ()) -&amp;gt; ()&lt;/code&gt;或&lt;code&gt;() -&amp;gt; (() -&amp;gt; ())&lt;/code&gt;&lt;/p&gt;
-&lt;p&gt;这就是函数式编程&lt;/p&gt;
-&lt;h1 id=&quot;Reference&quot;&gt;&lt;a href=&quot;#Reference&quot; class=&quot;headerlink&quot; title=&quot;Reference&quot;&gt;&lt;/a&gt;Reference&lt;/h1&gt;&lt;p&gt;&lt;a href=&quot;https://medium.com/swift-programming/facets-of-swift-part-2-tuples-4bfe58d21abf&quot; target=&quot;_blank&quot; rel=&quot;external&quot;&gt;https://medium.com/swift-programming/facets-of-swift-part-2-tuples-4bfe58d21abf&lt;/a&gt;&lt;br&gt;&lt;a href=&quot;https://github.com/jspahrsummers/the-future-of-reactivecocoa&quot; target=&quot;_blank&quot; rel=&quot;external&quot;&gt;https://github.com/jspahrsummers/the-future-of-reactivecocoa&lt;/a&gt;&lt;/p&gt;
-</content>
-    
-    <summary type="html">
-    
-      &lt;h1 id=&quot;我是前言&quot;&gt;&lt;a href=&quot;#我是前言&quot; class=&quot;headerlink&quot; title=&quot;我是前言&quot;&gt;&lt;/a&gt;我是前言&lt;/h1&gt;&lt;p&gt;&lt;code&gt;() -&amp;gt; ()&lt;/code&gt;不是什么表情符号，而是一种高度抽象的编程范式，它表示了一个函数式的编程思想，
-    
-    </summary>
-    
-    
-      <category term="wtf" scheme="http://blog.sunnyxx.com/tags/wtf/"/>
     
   </entry>
   
