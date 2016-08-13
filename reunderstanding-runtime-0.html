@@ -1,0 +1,77 @@
+<!DOCTYPE html><html lang="zh-cn"><head><meta charset="utf-8"><meta name="X-UA-Compatible" content="IE=edge"><title> 重识 Objective-C Runtime - Smalltalk 与 C 的融合 · sunnyxx的技术博客</title><meta name="description" content="重识 Objective-C Runtime - Smalltalk 与 C 的融合 - sunnyxx"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="short icon" href="/favicon.ico"><link rel="stylesheet" href="/css/apollo.css"></head><body><header><a href="/" class="logo-link"><img src="/doge-logo.png"></a><ul class="nav nav-list"><li class="nav-list-item"><a href="/" target="_self" class="nav-list-link">BLOG</a></li><li class="nav-list-item"><a href="/archives/" target="_self" class="nav-list-link">ARCHIVE</a></li><li class="nav-list-item"><a href="http://weibo.com/1364395395/" target="_blank" class="nav-list-link">WEIBO</a></li><li class="nav-list-item"><a href="https://github.com/forkingdog" target="_blank" class="nav-list-link">GITHUB</a></li><li class="nav-list-item"><a href="/atom.xml" target="_self" class="nav-list-link">RSS</a></li></ul></header><section class="container"><div class="post"><article class="post-block"><h1 class="post-title">重识 Objective-C Runtime - Smalltalk 与 C 的融合</h1><div class="post-time">2016年7月26日</div><div class="post-content"><p>这是<strong>重识 Objective-C Runtime</strong>系列博客的其中一篇：</p>
+<ul>
+<li><a href="">重识 Objective-C Runtime（一）Smalltalk 与 C 的融合</a></li>
+<li>重识 Objective-C Runtime（二）从 C 的演进</li>
+</ul>
+<p>2014 年的时候，线下分享了一次 Runtime，为配合分享还出了<a href="http://blog.sunnyxx.com/2014/11/06/runtime-nuts/">几个题目</a>，莫名其妙的被当成了面试题，导致大家各种补 Runtime 的知识和文章，甚至后来招人的时候，面试者都反问我为啥不考点 Runtime 的题 - -<br>时隔快两年，随着最近对这块的理解的加深，咱们来重新认识一下 Runtime。</p>
+<h2 id="Smalltalk-与-C-的融合"><a href="#Smalltalk-与-C-的融合" class="headerlink" title="Smalltalk 与 C 的融合"></a>Smalltalk 与 C 的融合</h2><p>三十几年前，Brad Cox 和 Tom Love 在主流且高效的 C 语言基础上，借鉴 Smalltalk 的面向对象与消息机制，想要搞出一个易用且轻量的 C 语言扩展，但 C 和 Smalltalk 的思想和语法格格不入，比如在 Smalltalk 中一切皆对象，一切调用都是发消息：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="number">233</span> <span class="built_in">log</span></span><br></pre></td></tr></table></figure>
+<p>再比如用一个工厂方法来实例化一个对象：</p>
+<figure class="highlight"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">p := Person name: 'sunnyxx' age: 26</span><br></pre></td></tr></table></figure>
+<p>在当时来看，一个具有面向对象功能的 C 语言真的是非常有吸引力，但必须得解决消息语法的转换，于是乎他们开发了一个 Preprocessor，去解析 Smalltalk 风格的语法，再转换成 C 语言的代码，进而和其他 C 代码一起编译。这个过程和现在 JavaScript 里的 CoffeeScript、JSX 很相似，构建一个 DSL，用转化器转化成原始语言的代码。但 Smalltalk 语法里面又是空格、又是冒号的，万一遇到个什么复杂嵌套调用，语法解析多难写呀，于是乎他们想，<strong>诶呀别费劲了，把消息两边加个中括号吧</strong>，这样 Parser 写起来简单多了呢对吧：</p>
+<figure class="highlight objc"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">[Person name:<span class="string">"sunnyxx"</span> age: <span class="number">26</span>];</span><br></pre></td></tr></table></figure>
+<p>这就造就了 Objective-C 奇怪的中括号、冒号四不像语法，这怎么看都是个临时的方案，但在当时可能是唯一方法，借用已有的 C 的编译器比重造一个成本低多了，而且完全兼容 C 语言。随着这几年 Apple 开发的火热，Objective-C 越来越成为 Apple 不爽的地方，先是恨透了在 GCC 上给 Objective-C 加支持，自己重建了个 Clang，后是干脆重新发明了个 Swift 来彻底代替，用 30 年的时间终于还完了这个技术债。</p>
+<p>好的，虽然有了个 Preprocessor，但只能做到把 Smalltalk 风格的代码分析并转译成 C，还需要解决两个问题：</p>
+<ol>
+<li>C 语言上实现一个 OOP 对象模型</li>
+<li>将 Smalltalk 风格的 Message 机制转换成 C 函数调用</li>
+</ol>
+<p><strong>对象模型</strong>的设计倒很省事，直接照搬 Smalltalk 的就好了：如 Class / Meta Class / Instance Method / Class Method 这些概念，还有一些关键字如 self / super / nil 等全都是 Smalltalk 的。这步转换在 Preprocessing 过程中就可以完成，因为重写后的 Class 就是原原本本的 C 语言的 Struct，只需要按 Smalltalk 中“类-元类”的模型设置好即可，无需额外的支持。</p>
+<p><strong>消息机制</strong>就不一样了，要实现向一个 target (class / instance) 发送消息名 (selector) 动态寻找到函数实现地址 (IMP) 并调用的过程，还要处理消息向父类传递、消息转发（Smalltalk 中叫 “Message-Not-Understood”）等，这些行为无法在 Preprocessing 或 Build Time 实现，需要提供若干<strong>运行时</strong>的 C 函数进行支持，所有这些函数打个包，便形成了最原始的 <strong>Runtime</strong>。</p>
+<p>所以最初的 <strong>Objective-C = C + Preprocessor + Runtime</strong></p>
+<blockquote>
+<p>注：GCC 中一开始用预处理器来支持 Objective-C，之后作为一个编译器模块，再后来都交给了 Clang 实现。</p>
+</blockquote>
+<p>作为单纯的 C 语言扩展，Runtime 中只要实现几个最基础的函数（如 objc_msgSend）即可，但为了构建整套 Objective-C 面向对象的基础库（如 Foundation），Runtime 还需要提供像 NSObject 这样的 Root Class 作为面向对象的起点、提供运行时反射机制以及运行时对 Class 结构修改的 API 等。再后来，即便是 Objective-C 语言本身的不断发展，新语言特性的加入，也不外乎是扩展 Clang 和扩展 Runtime，比如：</p>
+<ul>
+<li>ARC：编译器分析对象引用关系，在合适的位置插入内存管理的函数，并需要把这些函数打包加到 Runtime 中，如 <code>objc_storeStrong</code>，<code>objc_storeWeak</code>等，同时还要处理 dealloc 函数，自动加入对 super 的调用等，具体可以看<a href="http://blog.sunnyxx.com/2014/04/02/objc_dig_arc_dealloc/">这篇文章</a>。</li>
+<li>Lightweight Generics：叫做 “轻量泛型” 是因为只增加了编译器检查的支持，而泛型信息并未影响到运行时，所以 Runtime 库无需改动。</li>
+<li>Syntax Sugars：比如 Boxed Expr（<code>@123</code>）、Array Literal（<code>@[...]</code>）、Dictionary Literal（<code>@{...}</code>）和轻量泛型一样，只是把如 <code>@123</code> 在编译期 rewrite 成 <code>[NSNumber numberWithInt:123]</code> 而已，无需改动 Runtime。</li>
+<li>Non Fragile Ivars: 类实例变量的动态调整技术，用于实现 Objective-C Binary 的兼容性，随着 Objective-C 2.0 出现，需要编译器和 Runtime 的共同配合，感兴趣的可以看<a href="http://quotation.github.io/objc/2015/05/21/objc-runtime-ivar-access.html" target="_blank" rel="external">这篇文章</a>。</li>
+</ul>
+<p>因此，Runtime 的精髓并非在于平日里很少接触的那些所谓“黑魔法” Runtime API、也并非各种 Swizzle 大法，而是在 Objective-C 语言层面如何处理 Type、处理 Value、如何设计 OOP 数据结构和消息机制、如何设计 ABI 等，去了解这么一个小而美的 C 语言运行时扩展是怎么设计出来的。假如非要让我考一道 Runtime 的题，可能是<strong>“给你 C 语言，如何实现一个 Objective-C？”</strong>，答到哪儿算哪儿。</p>
+<p>下面就找几个有意思的点挨个聊聊。</p>
+<h2 id="Type-与-Value"><a href="#Type-与-Value" class="headerlink" title="Type 与 Value"></a>Type 与 Value</h2><p>对于 C 语言来说，Type 就个比较虚幻的东西，它唯一的目的便是<strong>让编译器知道一段数据的长度，来决定如何存取</strong>，举个例子：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">int</span> i = <span class="number">123</span>;</span><br><span class="line"><span class="keyword">char</span> c = (char)i;</span><br></pre></td></tr></table></figure>
+<p>这段代码声明了一个 int 类型的变量和一个 char 类型的变量，有初始化和类型强转过程，在 x86_64 架构下，这两行代码的汇编如下：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">movl $<span class="number">123</span>, <span class="number">-4</span>(%rbp)</span><br><span class="line">movl <span class="number">-4</span>(%rbp), %eax</span><br><span class="line">movb %al, %cl</span><br><span class="line">movb %cl, <span class="number">-5</span>(%rbp)</span><br></pre></td></tr></table></figure>
+<p>汇编看起来混乱，但却能最真实的反映出程序的运行过程，逐行解释下：</p>
+<p><code>movl $123, -4(%rbp)</code>：move 指令就是简单的值拷贝，这条指令中出现的 <code>movl</code> 表示按低 32 位的长度来拷贝（也就是一个 int 的长度），与之相似的还有 8 位的 <code>movb</code>（char）、16 位的 <code>movw</code> (short)、64 位的 <code>movq</code> (long in 64) 等；<code>$123</code> 即字面常量值；<code>-4(%rbp)</code> 代表 base pointer - 栈基地址寄存器，偏移 4 字节的位置。这个指令执行后内存如下所示：<br><img src="media/%E5%B1%8F%E5%B9%95%E5%BF%AB%E7%85%A7%202016-07-27%20%E4%B8%8B%E5%8D%8810.32.46.png" alt="屏幕快照 2016-07-27 下午10.32.46"></p>
+<p><code>movl -4(%rbp), %eax</code>：将刚才 4 字节长度内存赋值给 <code>%eax</code> 寄存器，它是最常用的通用寄存器之一，名为 accumulator，在 64 位架构下，<code>rax</code> 表示这个寄存器的完全体，<code>eax</code> 表示它的低 32 位，<code>ax</code> 表示低 16 位，<code>ah</code> 表示第 8~16 位，<code>al</code> 表示最低的 8 位。这样抠门的设计一部分因为兼容历史的 32 架构，一方面也是为了更充分利用寄存器这个宝贵的资源：</p>
+<p><img src="media/%E5%B1%8F%E5%B9%95%E5%BF%AB%E7%85%A7%202016-07-27%20%E4%B8%8B%E5%8D%8810.51.59.png" alt="屏幕快照 2016-07-27 下午10.51.59"></p>
+<p><code>movb %al, %cl</code>: 按 8 位长度 (char) 将 a 寄存器的最低 8 位移动到 c 寄存器（count register）的低 8 位。这一个指令就在做 int 到 char 的类型转换，把 123 存在寄存器的低 32 位上，再把寄存器的最低 8 位取出来，相当于把 00000000000000000000000001111011 截断成了 01111011。</p>
+<p><code>movb %cl, -5(%rbp)</code>: 最后，再把刚才的结果按 8 字节的长度拷贝到 %rbp 偏移 5 的位置，完成这个 char 类型栈变量的赋值：<br><img src="media/%E5%B1%8F%E5%B9%95%E5%BF%AB%E7%85%A7%202016-07-27%20%E4%B8%8B%E5%8D%8811.10.45.png" alt="屏幕快照 2016-07-27 下午11.10.45"></p>
+<p>因此，对于 C 这种静态语言，Type 信息只用于编译器解析，除了静态检查外还影响生成：</p>
+<ol>
+<li>相应长度的指令 (是 movq、movl 还是 movb ?)</li>
+<li>寄存器长度的选用（是 rax、eax 还是 al ?）</li>
+<li>栈变量内存大小的确定，也可以说是 sp 的位置（ sp 表示 Stack Pointer， 它和 Base Pointer 配合管理栈内存的分配与回收，所谓“分配”栈内存只是用如 <code>subq $32, %rsp</code> 的指令将 sp 向低地址移动）</li>
+</ol>
+<p>然而，对于动态语言，Type 不仅在编译期起到上述作用，<strong>还需要保留到运行时，让动态调用得以实现</strong>，被称作 <code>Type Encodings</code>，对于 Objective-C 所有 Type 的编码，都可以在<a href="https://developer.apple.com/library/mac/documentation/Cocoa/Conceptual/ObjCRuntimeGuide/Articles/ocrtTypeEncodings.html" target="_blank" rel="external">这个官方文档</a>中查到，里面的编码和用 <code>@encode()</code> 生成的一致，比如：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">@encode(int) =&gt; &quot;i&quot;</span><br><span class="line">@encode(float) =&gt; &quot;f&quot;</span><br><span class="line">@encode(id) =&gt; &quot;@&quot;</span><br><span class="line">@encode(SEL) =&gt; &quot;:&quot;</span><br><span class="line">@encode(CGRect) =&gt; &quot;&#123;CGRect=&#123;CGPoint=dd&#125;&#123;CGSize=dd&#125;&#125;&quot; // 64</span><br></pre></td></tr></table></figure>
+<p>Objective-C Class 中每个实例变量的 Type 信息全部被编码，Runtime 也提供了 <code>ivar_getTypeEncoding</code> 来访问。<br>同时，为支持消息的转发和动态调用，Objective-C Method 的 Type 信息也被以 “返回值 Type + 参数 Types” 的形式<strong>组合编码</strong>，还需要考虑到 <code>self</code> 和 <code>_cmd</code> 这两个隐含参数：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">- (void)foo; =&gt; &quot;v@:&quot;</span><br><span class="line">- (int)barWithBaz:(double)baz; =&gt; &quot;iv@:d&quot;</span><br></pre></td></tr></table></figure>
+<blockquote>
+<p>注：上面的方法的 Encoding 使用新的格式，旧的格式中包含调用栈大小和布局信息，如 <code>i24@0:8i16i20</code>，表示调用栈帧共 24 字节大小，后面每个参数跟着的数字表示该参数在调用栈的偏移值，在 x86_64 和 ARM 成为主流后，调用的 Calling Conventions 发生巨大变化，开始借助寄存器传参，所以在“参数压栈”时代的这种编码方式逐渐被废弃。</p>
+</blockquote>
+<p>方法的编码可以使用 <code>method_getTypeEncoding</code> 获取，在 Cocoa 层，被 <code>NSMethodSignature</code> 封装，并提供了一些便捷的解析方法。</p>
+<p>多说一句，纯 Swift 声称自己是静态的语言，因为在编译后，任何结构都会被 <code>Name Mangling</code> 压缩成一个符号，比如下面的方法：</p>
+<figure class="highlight swift"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="class"><span class="keyword">class</span> <span class="title">Sark</span> </span>&#123;</span><br><span class="line">    <span class="function"><span class="keyword">func</span> <span class="title">foo</span><span class="params">(bar: Int)</span></span> -&gt; <span class="type">Int</span> &#123;</span><br><span class="line">        <span class="keyword">return</span> bar;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>经过 Name Mangling 的符号是 <code>_TFC12TestSwift4Sark3foofT3barSi_Si</code>，虽然把结构都拍扁了，但该有的信息都在，Module、Class、Method、参数和返回值类型等，按照一定的格式进行了编码，感兴趣可以看<a href="https://mikeash.com/pyblog/friday-qa-2014-08-15-swift-name-mangling.html" target="_blank" rel="external">这篇文章</a>。</p>
+<p>既然 Swift 已经把类型信息带入到了 Runtime，那么理论上就可以对它进行动态的调用，<a href="https://github.com/sunnyxx/PatchSwiftDemo" target="_blank" rel="external">https://github.com/sunnyxx/PatchSwiftDemo</a></p>
+<h2 id="ABI"><a href="#ABI" class="headerlink" title="ABI"></a>ABI</h2><h2 id="Tagged-Pointer"><a href="#Tagged-Pointer" class="headerlink" title="Tagged Pointer"></a>Tagged Pointer</h2><p>值类型对象<br>po 12071766408378668855</p>
+<h1 id="Function"><a href="#Function" class="headerlink" title="Function"></a>Function</h1><h2 id="Name-Mangling"><a href="#Name-Mangling" class="headerlink" title="Name Mangling"></a>Name Mangling</h2><h1 id="Message"><a href="#Message" class="headerlink" title="Message"></a>Message</h1><p>class 可以作为 UITableViewDataSource 么</p>
+<p>runtime = type + value + call</p>
+<p>type-&gt; function name + arg type + ret type<br>name mangling<br>function name -&gt; c (dlsym) swift -&gt; github objc -&gt; SEL</p>
+<h1 id="References"><a href="#References" class="headerlink" title="References"></a>References</h1><p><a href="https://zh.wikipedia.org/wiki/Objective-C" target="_blank" rel="external">https://zh.wikipedia.org/wiki/Objective-C</a><br><a href="http://web.cecs.pdx.edu/~harry/musings/SmalltalkOverview.html" target="_blank" rel="external">http://web.cecs.pdx.edu/~harry/musings/SmalltalkOverview.html</a></p>
+</div></article></div></section><footer><div class="paginator"></div><div data-thread-key="reunderstanding-runtime-0.html" data-title="重识 Objective-C Runtime - Smalltalk 与 C 的融合" data-url="http://blog.sunnyxx.com/reunderstanding-runtime-0.html" data-author-key="1" class="ds-thread"></div><script>var duoshuoQuery = {short_name:"sunnyxx"};
+(function() {
+    var ds = document.createElement('script');
+    ds.type = 'text/javascript';ds.async = true;
+    ds.src = (document.location.protocol == 'https:' ? 'https:' : 'http:') + '//static.duoshuo.com/embed.js';
+    ds.charset = 'UTF-8';
+    (document.getElementsByTagName('head')[0] 
+     || document.getElementsByTagName('body')[0]).appendChild(ds);
+})();
+
+</script><div class="copyright"><p>原创文章，版权声明：署名-非商业性使用-相同方式共享 2.5 </p><p>对博主感兴趣？微信订阅号中关注 sunnyxx 或关注微博<a href="http://weibo.com/1364395395/">@我就叫Sunny怎么了</a></p><p>© 2015 - 2016  <a href="http://blog.sunnyxx.com">sunnyxx</a> | Powered by Hexo</p></div></footer></body></html>

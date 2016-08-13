@@ -5,7 +5,7 @@
   <link href="/atom.xml" rel="self"/>
   
   <link href="http://blog.sunnyxx.com/"/>
-  <updated>2016-05-16T05:45:41.000Z</updated>
+  <updated>2016-08-13T04:39:39.000Z</updated>
   <id>http://blog.sunnyxx.com/</id>
   
   <author>
@@ -14,6 +14,65 @@
   </author>
   
   <generator uri="http://hexo.io/">Hexo</generator>
+  
+  <entry>
+    <title>重识 Objective-C Runtime - Smalltalk 与 C 的融合</title>
+    <link href="http://blog.sunnyxx.com/2016/08/13/reunderstanding-runtime-0/"/>
+    <id>http://blog.sunnyxx.com/2016/08/13/reunderstanding-runtime-0/</id>
+    <published>2016-08-13T04:25:04.000Z</published>
+    <updated>2016-08-13T04:39:39.000Z</updated>
+    
+    <content type="html">&lt;p&gt;这是&lt;strong&gt;重识 Objective-C Runtime&lt;/strong&gt;系列文章的其中一篇：&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;a href=&quot;http://blog.sunnyxx.com/2016/08/13/reunderstanding-runtime-0/&quot;&gt;重识 Objective-C Runtime - Smalltalk 与 C 的融合&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;重识 Objective-C Runtime - 看透 Type 与 Value&lt;/li&gt;
+&lt;li&gt;重识 Objective-C Runtime - 何为对象何为类&lt;/li&gt;
+&lt;li&gt;重识 Objective-C Runtime - Calling Conventions&lt;/li&gt;
+&lt;li&gt;重识 Objective-C Runtime - 能写完上面的就不错了&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;2014 年的时候，线下分享了一次 Runtime，为配合分享还出了&lt;a href=&quot;http://blog.sunnyxx.com/2014/11/06/runtime-nuts/&quot;&gt;几个题目&lt;/a&gt;，莫名其妙的被当成了面试题，导致大家各种补 Runtime 的知识和文章，甚至后来招人的时候，面试者都反问我为啥不考点 Runtime 的题 - -&lt;br&gt;时隔快两年，随着最近对这块的理解的加深，咱们来重新认识一下 Runtime。&lt;/p&gt;
+&lt;h2 id=&quot;Smalltalk-与-C-的融合&quot;&gt;&lt;a href=&quot;#Smalltalk-与-C-的融合&quot; class=&quot;headerlink&quot; title=&quot;Smalltalk 与 C 的融合&quot;&gt;&lt;/a&gt;Smalltalk 与 C 的融合&lt;/h2&gt;&lt;p&gt;三十几年前，Brad Cox 和 Tom Love 在主流且高效的 C 语言基础上，借鉴 Smalltalk 的面向对象与消息机制，想要搞出一个易用且轻量的 C 语言扩展，但 C 和 Smalltalk 的思想和语法格格不入，比如在 Smalltalk 中一切皆对象，一切调用都是发消息：&lt;/p&gt;
+&lt;figure class=&quot;highlight c&quot;&gt;&lt;table&gt;&lt;tr&gt;&lt;td class=&quot;gutter&quot;&gt;&lt;pre&gt;&lt;span class=&quot;line&quot;&gt;1&lt;/span&gt;&lt;br&gt;&lt;/pre&gt;&lt;/td&gt;&lt;td class=&quot;code&quot;&gt;&lt;pre&gt;&lt;span class=&quot;line&quot;&gt;&lt;span class=&quot;number&quot;&gt;233&lt;/span&gt; &lt;span class=&quot;built_in&quot;&gt;log&lt;/span&gt;&lt;/span&gt;&lt;br&gt;&lt;/pre&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/figure&gt;
+&lt;p&gt;再比如用一个工厂方法来实例化一个对象：&lt;/p&gt;
+&lt;figure class=&quot;highlight&quot;&gt;&lt;table&gt;&lt;tr&gt;&lt;td class=&quot;gutter&quot;&gt;&lt;pre&gt;&lt;span class=&quot;line&quot;&gt;1&lt;/span&gt;&lt;br&gt;&lt;/pre&gt;&lt;/td&gt;&lt;td class=&quot;code&quot;&gt;&lt;pre&gt;&lt;span class=&quot;line&quot;&gt;p := Person name: &#39;sunnyxx&#39; age: 26&lt;/span&gt;&lt;br&gt;&lt;/pre&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/figure&gt;
+&lt;p&gt;在当时来看，一个具有面向对象功能的 C 语言真的是非常有吸引力，但必须得解决消息语法的转换，于是乎他们开发了一个 Preprocessor，去解析 Smalltalk 风格的语法，再转换成 C 语言的代码，进而和其他 C 代码一起编译。这个过程和现在 JavaScript 里的 CoffeeScript、JSX 很相似，构建一个 DSL，用转化器转化成原始语言的代码。&lt;/p&gt;
+&lt;p&gt;想法很美好，但 Smalltalk 语法里面又是空格、又是冒号的，万一遇到个什么复杂嵌套调用，语法解析多难写呀，于是乎他们想，&lt;strong&gt;诶呀别费劲了，把消息两边加个中括号吧&lt;/strong&gt;，这样 Parser 写起来简单多了呢对吧：&lt;/p&gt;
+&lt;figure class=&quot;highlight objc&quot;&gt;&lt;table&gt;&lt;tr&gt;&lt;td class=&quot;gutter&quot;&gt;&lt;pre&gt;&lt;span class=&quot;line&quot;&gt;1&lt;/span&gt;&lt;br&gt;&lt;/pre&gt;&lt;/td&gt;&lt;td class=&quot;code&quot;&gt;&lt;pre&gt;&lt;span class=&quot;line&quot;&gt;[Person name:&lt;span class=&quot;string&quot;&gt;&quot;sunnyxx&quot;&lt;/span&gt; age: &lt;span class=&quot;number&quot;&gt;26&lt;/span&gt;];&lt;/span&gt;&lt;br&gt;&lt;/pre&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/figure&gt;
+&lt;p&gt;这就造就了 Objective-C 奇怪的中括号、冒号四不像语法，这怎么看都是个临时的方案，但在当时可能是唯一方法，借用已有的 C 的编译器比重造一个成本低多了，而且完全兼容 C 语言。随着这几年 Apple 开发的火热，Objective-C 越来越成为 Apple 不爽的地方，先是恨透了在 GCC 上给 Objective-C 加支持，自己重建了个 Clang，后是干脆重新发明了个 Swift 来彻底代替，用 30 年的时间终于还完了这个技术债。&lt;/p&gt;
+&lt;p&gt;好的，虽然有了个 Preprocessor，但只能做到把 Smalltalk 风格的代码分析并转译成 C，还需要解决两个问题：&lt;/p&gt;
+&lt;ol&gt;
+&lt;li&gt;C 语言上实现一个 OOP 对象模型&lt;/li&gt;
+&lt;li&gt;将 Smalltalk 风格的 Message 机制转换成 C 函数调用&lt;/li&gt;
+&lt;/ol&gt;
+&lt;p&gt;&lt;strong&gt;对象模型&lt;/strong&gt;的设计倒很省事，直接照搬 Smalltalk 的就好了：如 Class / Meta Class / Instance Method / Class Method 这些概念，还有一些关键字如 self / super / nil 等全都是 Smalltalk 的。这步转换在 Preprocessing 过程中就可以完成，因为重写后的 Class 就是原原本本的 C 语言的 Struct，只需要按 Smalltalk 中“类-元类”的模型设置好即可，无需额外的支持。&lt;/p&gt;
+&lt;p&gt;&lt;strong&gt;消息机制&lt;/strong&gt;就不一样了，要实现向一个 target ( class / instance ) 发送消息名 ( selector ) 动态寻找到函数实现地址 ( IMP ) 并调用的过程，还要处理消息向父类传递、消息转发（ Smalltalk 中叫 “Message-Not-Understood”）等，这些行为无法在 Preprocessing 或 Build Time 实现，需要提供若干&lt;strong&gt;运行时&lt;/strong&gt;的 C 函数进行支持，所有这些函数打个包，便形成了最原始的 &lt;strong&gt;Runtime&lt;/strong&gt;。&lt;/p&gt;
+&lt;p&gt;所以最初的 &lt;strong&gt;Objective-C = C + Preprocessor + Runtime&lt;/strong&gt;&lt;/p&gt;
+&lt;blockquote&gt;
+&lt;p&gt;注：GCC 中一开始用预处理器来支持 Objective-C，之后作为一个编译器模块，再后来都交给了 Clang 实现。&lt;/p&gt;
+&lt;/blockquote&gt;
+&lt;p&gt;作为单纯的 C 语言扩展，Runtime 中只要实现几个最基础的函数（如 objc_msgSend）即可，但为了构建整套 Objective-C 面向对象的基础库（如 Foundation），Runtime 还需要提供像 NSObject 这样的 Root Class 作为面向对象的起点、提供运行时反射机制以及运行时对 Class 结构修改的 API 等。再后来，即便是 Objective-C 语言本身的不断发展，新语言特性的加入，也不外乎是扩展 Clang 和扩展 Runtime，比如：&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;ARC：编译器分析对象引用关系，在合适的位置插入内存管理的函数，并需要把这些函数打包加到 Runtime 中，如 &lt;code&gt;objc_storeStrong&lt;/code&gt;，&lt;code&gt;objc_storeWeak&lt;/code&gt;等，同时还要处理 dealloc 函数，自动加入对 super 的调用等，具体可以看&lt;a href=&quot;http://blog.sunnyxx.com/2014/04/02/objc_dig_arc_dealloc/&quot;&gt;这篇文章&lt;/a&gt;。&lt;/li&gt;
+&lt;li&gt;Lightweight Generics：叫做 “轻量泛型” 是因为只增加了编译器检查的支持，而泛型信息并未影响到运行时，所以 Runtime 库无需改动。&lt;/li&gt;
+&lt;li&gt;Syntax Sugars：比如 Boxed Expr（&lt;code&gt;@123&lt;/code&gt;）、Array Literal（&lt;code&gt;@[...]&lt;/code&gt;）、Dictionary Literal（&lt;code&gt;@{...}&lt;/code&gt;）和轻量泛型一样，只是把如 &lt;code&gt;@123&lt;/code&gt; 在编译期 rewrite 成 &lt;code&gt;[NSNumber numberWithInt:123]&lt;/code&gt; 而已，无需改动 Runtime。&lt;/li&gt;
+&lt;li&gt;Non Fragile Ivars: 类实例变量的动态调整技术，用于实现 Objective-C Binary 的兼容性，随着 Objective-C 2.0 出现，需要编译器和 Runtime 的共同配合，感兴趣的可以看&lt;a href=&quot;http://quotation.github.io/objc/2015/05/21/objc-runtime-ivar-access.html&quot; target=&quot;_blank&quot; rel=&quot;external&quot;&gt;这篇文章&lt;/a&gt;。&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;因此，Runtime 的精髓并非在于平日里很少接触的那些所谓“黑魔法” Runtime API、也并非各种 Swizzle 大法，而是在 Objective-C 语言层面如何处理 Type、处理 Value、如何设计 OOP 数据结构和消息机制、如何设计 ABI 等，去了解这么一个小而美的 C 语言运行时扩展是怎么设计出来的。假如非要让我考一道 Runtime 的题，可能是&lt;strong&gt;“给你 C 语言，如何实现一个 Objective-C？”&lt;/strong&gt;，答到哪儿算哪儿。&lt;/p&gt;
+&lt;p&gt;接下来的文章就找几个有意思的点挨个聊聊。&lt;/p&gt;
+&lt;h2 id=&quot;References&quot;&gt;&lt;a href=&quot;#References&quot; class=&quot;headerlink&quot; title=&quot;References&quot;&gt;&lt;/a&gt;References&lt;/h2&gt;&lt;p&gt;&lt;a href=&quot;https://zh.wikipedia.org/wiki/Objective-C&quot; target=&quot;_blank&quot; rel=&quot;external&quot;&gt;https://zh.wikipedia.org/wiki/Objective-C&lt;/a&gt;&lt;br&gt;&lt;a href=&quot;http://web.cecs.pdx.edu/~harry/musings/SmalltalkOverview.html&quot; target=&quot;_blank&quot; rel=&quot;external&quot;&gt;http://web.cecs.pdx.edu/~harry/musings/SmalltalkOverview.html&lt;/a&gt;&lt;/p&gt;
+&lt;h2 id=&quot;来罐可乐并催更&quot;&gt;&lt;a href=&quot;#来罐可乐并催更&quot; class=&quot;headerlink&quot; title=&quot;来罐可乐并催更&quot;&gt;&lt;/a&gt;来罐可乐并催更&lt;/h2&gt;&lt;p&gt;&lt;img src=&quot;http://ww2.sinaimg.cn/large/51530583jw1et2mwz8hqzj20af0camy7.jpg&quot; alt=&quot;&quot;&gt;&lt;/p&gt;
+</content>
+    
+    <summary type="html">
+    
+      &lt;p&gt;这是&lt;strong&gt;重识 Objective-C Runtime&lt;/strong&gt;系列文章的其中一篇：&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;a href=&quot;http://blog.sunnyxx.com/2016/08/13/reunderstanding-runtime-0/&quot;&gt;
+    
+    </summary>
+    
+    
+  </entry>
   
   <entry>
     <title>Clang Attributes 黑魔法小记</title>
@@ -1143,46 +1202,6 @@
     
     
       <category term="wtf" scheme="http://blog.sunnyxx.com/tags/wtf/"/>
-    
-  </entry>
-  
-  <entry>
-    <title>黑魔法__attribute__((cleanup))</title>
-    <link href="http://blog.sunnyxx.com/2014/09/15/objc-attribute-cleanup/"/>
-    <id>http://blog.sunnyxx.com/2014/09/15/objc-attribute-cleanup/</id>
-    <published>2014-09-15T09:09:36.000Z</published>
-    <updated>2016-04-09T05:00:16.000Z</updated>
-    
-    <content type="html">&lt;p&gt;编译器属性&lt;code&gt;__attribute__&lt;/code&gt;用于向编译器描述特殊的标识、检查或优化，几个常用的用法看&lt;a href=&quot;http://nshipster.com/__attribute__/&quot; target=&quot;_blank&quot; rel=&quot;external&quot;&gt;《mattt大神的文章》&lt;/a&gt;就好。今天发现一个名为&lt;code&gt;cleanup&lt;/code&gt;的黑魔法属性，简单介绍下。&lt;/p&gt;
-&lt;hr&gt;
-&lt;h2 id=&quot;基本用法&quot;&gt;&lt;a href=&quot;#基本用法&quot; class=&quot;headerlink&quot; title=&quot;基本用法&quot;&gt;&lt;/a&gt;基本用法&lt;/h2&gt;&lt;p&gt;&lt;code&gt;__attribute__((cleanup(...)))&lt;/code&gt;，用于修饰一个变量，&lt;strong&gt;在它的作用域结束时可以自动执行一个指定的方法&lt;/strong&gt;，如：&lt;/p&gt;
-&lt;figure class=&quot;highlight objc&quot;&gt;&lt;table&gt;&lt;tr&gt;&lt;td class=&quot;gutter&quot;&gt;&lt;pre&gt;&lt;span class=&quot;line&quot;&gt;1&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;2&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;3&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;4&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;5&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;6&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;7&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;8&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;9&lt;/span&gt;&lt;br&gt;&lt;/pre&gt;&lt;/td&gt;&lt;td class=&quot;code&quot;&gt;&lt;pre&gt;&lt;span class=&quot;line&quot;&gt;&lt;span class=&quot;comment&quot;&gt;// 指定一个cleanup方法，注意入参是所修饰变量的地址，类型要一样&lt;/span&gt;&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;&lt;span class=&quot;comment&quot;&gt;// 对于指向objc对象的指针(id *)，如果不强制声明__strong默认是__autoreleasing，造成类型不匹配&lt;/span&gt;&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;&lt;span class=&quot;keyword&quot;&gt;static&lt;/span&gt; &lt;span class=&quot;keyword&quot;&gt;void&lt;/span&gt; stringCleanUp(__&lt;span class=&quot;keyword&quot;&gt;strong&lt;/span&gt; &lt;span class=&quot;built_in&quot;&gt;NSString&lt;/span&gt; **string) &amp;#123;&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;    &lt;span class=&quot;built_in&quot;&gt;NSLog&lt;/span&gt;(&lt;span class=&quot;string&quot;&gt;@&quot;%@&quot;&lt;/span&gt;, *string);&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;&amp;#125;&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;&lt;span class=&quot;comment&quot;&gt;// 在某个方法中：&lt;/span&gt;&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;&amp;#123;&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;    __&lt;span class=&quot;keyword&quot;&gt;strong&lt;/span&gt; &lt;span class=&quot;built_in&quot;&gt;NSString&lt;/span&gt; *string __attribute__((cleanup(stringCleanUp))) = &lt;span class=&quot;string&quot;&gt;@&quot;sunnyxx&quot;&lt;/span&gt;;&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;&amp;#125; &lt;span class=&quot;comment&quot;&gt;// 当运行到这个作用域结束时，自动调用stringCleanUp&lt;/span&gt;&lt;/span&gt;&lt;br&gt;&lt;/pre&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/figure&gt;
-&lt;p&gt;所谓作用域结束，包括大括号结束、return、goto、break、exception等各种情况。&lt;br&gt;当然，可以修饰的变量不止NSString，&lt;code&gt;自定义Class&lt;/code&gt;或&lt;code&gt;基本类型&lt;/code&gt;都是可以的：&lt;/p&gt;
-&lt;figure class=&quot;highlight objc&quot;&gt;&lt;table&gt;&lt;tr&gt;&lt;td class=&quot;gutter&quot;&gt;&lt;pre&gt;&lt;span class=&quot;line&quot;&gt;1&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;2&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;3&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;4&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;5&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;6&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;7&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;8&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;9&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;10&lt;/span&gt;&lt;br&gt;&lt;/pre&gt;&lt;/td&gt;&lt;td class=&quot;code&quot;&gt;&lt;pre&gt;&lt;span class=&quot;line&quot;&gt;&lt;span class=&quot;comment&quot;&gt;// 自定义的Class&lt;/span&gt;&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;&lt;span class=&quot;keyword&quot;&gt;static&lt;/span&gt; &lt;span class=&quot;keyword&quot;&gt;void&lt;/span&gt; sarkCleanUp(__&lt;span class=&quot;keyword&quot;&gt;strong&lt;/span&gt; Sark **sark) &amp;#123;&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;    &lt;span class=&quot;built_in&quot;&gt;NSLog&lt;/span&gt;(&lt;span class=&quot;string&quot;&gt;@&quot;%@&quot;&lt;/span&gt;, *sark);&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;&amp;#125;&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;__&lt;span class=&quot;keyword&quot;&gt;strong&lt;/span&gt; Sark *sark __attribute__((cleanup(sarkCleanUp))) = [Sark new];&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;&lt;span class=&quot;comment&quot;&gt;// 基本类型&lt;/span&gt;&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;&lt;span class=&quot;keyword&quot;&gt;static&lt;/span&gt; &lt;span class=&quot;keyword&quot;&gt;void&lt;/span&gt; intCleanUp(&lt;span class=&quot;built_in&quot;&gt;NSInteger&lt;/span&gt; *integer) &amp;#123;&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;    &lt;span class=&quot;built_in&quot;&gt;NSLog&lt;/span&gt;(&lt;span class=&quot;string&quot;&gt;@&quot;%d&quot;&lt;/span&gt;, *integer);&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;&amp;#125;&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;&lt;span class=&quot;built_in&quot;&gt;NSInteger&lt;/span&gt; integer __attribute__((cleanup(intCleanUp))) = &lt;span class=&quot;number&quot;&gt;1&lt;/span&gt;;&lt;/span&gt;&lt;br&gt;&lt;/pre&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/figure&gt;
-&lt;p&gt;假如一个作用域内有若干个cleanup的变量，他们的调用顺序是&lt;code&gt;先入后出&lt;/code&gt;的栈式顺序；&lt;br&gt;而且，cleanup是先于这个对象的&lt;code&gt;dealloc&lt;/code&gt;调用的。&lt;/p&gt;
-&lt;h2 id=&quot;进阶用法&quot;&gt;&lt;a href=&quot;#进阶用法&quot; class=&quot;headerlink&quot; title=&quot;进阶用法&quot;&gt;&lt;/a&gt;进阶用法&lt;/h2&gt;&lt;p&gt;既然&lt;code&gt;__attribute__((cleanup(...)))&lt;/code&gt;可以用来修饰变量，&lt;code&gt;block&lt;/code&gt;当然也是其中之一，写一个block的cleanup函数非常有趣：&lt;/p&gt;
-&lt;figure class=&quot;highlight objc&quot;&gt;&lt;table&gt;&lt;tr&gt;&lt;td class=&quot;gutter&quot;&gt;&lt;pre&gt;&lt;span class=&quot;line&quot;&gt;1&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;2&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;3&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;4&lt;/span&gt;&lt;br&gt;&lt;/pre&gt;&lt;/td&gt;&lt;td class=&quot;code&quot;&gt;&lt;pre&gt;&lt;span class=&quot;line&quot;&gt;&lt;span class=&quot;comment&quot;&gt;// void(^block)(void)的指针是void(^*block)(void)&lt;/span&gt;&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;&lt;span class=&quot;keyword&quot;&gt;static&lt;/span&gt; &lt;span class=&quot;keyword&quot;&gt;void&lt;/span&gt; blockCleanUp(__&lt;span class=&quot;keyword&quot;&gt;strong&lt;/span&gt; &lt;span class=&quot;keyword&quot;&gt;void&lt;/span&gt;(^*block)(&lt;span class=&quot;keyword&quot;&gt;void&lt;/span&gt;)) &amp;#123;&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;    (*block)();&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;&amp;#125;&lt;/span&gt;&lt;br&gt;&lt;/pre&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/figure&gt;
-&lt;p&gt;于是在一个作用域里声明一个block：&lt;/p&gt;
-&lt;figure class=&quot;highlight objc&quot;&gt;&lt;table&gt;&lt;tr&gt;&lt;td class=&quot;gutter&quot;&gt;&lt;pre&gt;&lt;span class=&quot;line&quot;&gt;1&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;2&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;3&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;4&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;5&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;6&lt;/span&gt;&lt;br&gt;&lt;/pre&gt;&lt;/td&gt;&lt;td class=&quot;code&quot;&gt;&lt;pre&gt;&lt;span class=&quot;line&quot;&gt;&amp;#123;&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;   &lt;span class=&quot;comment&quot;&gt;// 加了个`unused`的attribute用来消除`unused variable`的warning&lt;/span&gt;&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;    __&lt;span class=&quot;keyword&quot;&gt;strong&lt;/span&gt; &lt;span class=&quot;keyword&quot;&gt;void&lt;/span&gt;(^block)(&lt;span class=&quot;keyword&quot;&gt;void&lt;/span&gt;) __attribute__((cleanup(blockCleanUp), unused)) = ^&amp;#123;&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;        &lt;span class=&quot;built_in&quot;&gt;NSLog&lt;/span&gt;(&lt;span class=&quot;string&quot;&gt;@&quot;I&#39;m dying...&quot;&lt;/span&gt;);&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;    &amp;#125;;&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;&amp;#125; &lt;span class=&quot;comment&quot;&gt;// 这里输出&quot;I&#39;m dying...&quot;&lt;/span&gt;&lt;/span&gt;&lt;br&gt;&lt;/pre&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/figure&gt;
-&lt;p&gt;这里不得不提万能的&lt;code&gt;Reactive Cocoa&lt;/code&gt;中神奇的&lt;code&gt;@onExit&lt;/code&gt;方法，其实正是上面的写法，简单定义个宏：&lt;/p&gt;
-&lt;figure class=&quot;highlight objc&quot;&gt;&lt;table&gt;&lt;tr&gt;&lt;td class=&quot;gutter&quot;&gt;&lt;pre&gt;&lt;span class=&quot;line&quot;&gt;1&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;2&lt;/span&gt;&lt;br&gt;&lt;/pre&gt;&lt;/td&gt;&lt;td class=&quot;code&quot;&gt;&lt;pre&gt;&lt;span class=&quot;line&quot;&gt;&lt;span class=&quot;meta&quot;&gt;#define onExit\&lt;/span&gt;&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;    __&lt;span class=&quot;keyword&quot;&gt;strong&lt;/span&gt; &lt;span class=&quot;keyword&quot;&gt;void&lt;/span&gt;(^block)(&lt;span class=&quot;keyword&quot;&gt;void&lt;/span&gt;) __attribute__((cleanup(blockCleanUp), unused)) = ^&lt;/span&gt;&lt;br&gt;&lt;/pre&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/figure&gt;
-&lt;p&gt;用这个宏就能将一段写在前面的代码最后执行：  &lt;/p&gt;
-&lt;figure class=&quot;highlight objc&quot;&gt;&lt;table&gt;&lt;tr&gt;&lt;td class=&quot;gutter&quot;&gt;&lt;pre&gt;&lt;span class=&quot;line&quot;&gt;1&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;2&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;3&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;4&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;5&lt;/span&gt;&lt;br&gt;&lt;/pre&gt;&lt;/td&gt;&lt;td class=&quot;code&quot;&gt;&lt;pre&gt;&lt;span class=&quot;line&quot;&gt;&amp;#123;&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;    onExit &amp;#123;&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;        &lt;span class=&quot;built_in&quot;&gt;NSLog&lt;/span&gt;(&lt;span class=&quot;string&quot;&gt;@&quot;yo&quot;&lt;/span&gt;);&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;    &amp;#125;;&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;&amp;#125; &lt;span class=&quot;comment&quot;&gt;// Log &quot;yo&quot;&lt;/span&gt;&lt;/span&gt;&lt;br&gt;&lt;/pre&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/figure&gt;
-&lt;p&gt;这样的写法可以将成对出现的代码写在一起，比如说一个lock：&lt;/p&gt;
-&lt;figure class=&quot;highlight objc&quot;&gt;&lt;table&gt;&lt;tr&gt;&lt;td class=&quot;gutter&quot;&gt;&lt;pre&gt;&lt;span class=&quot;line&quot;&gt;1&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;2&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;3&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;4&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;5&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;6&lt;/span&gt;&lt;br&gt;&lt;/pre&gt;&lt;/td&gt;&lt;td class=&quot;code&quot;&gt;&lt;pre&gt;&lt;span class=&quot;line&quot;&gt;&lt;span class=&quot;built_in&quot;&gt;NSRecursiveLock&lt;/span&gt; *aLock = [[&lt;span class=&quot;built_in&quot;&gt;NSRecursiveLock&lt;/span&gt; alloc] init];&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;[aLock lock];&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;&lt;span class=&quot;comment&quot;&gt;// 这里&lt;/span&gt;&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;&lt;span class=&quot;comment&quot;&gt;//     有&lt;/span&gt;&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;&lt;span class=&quot;comment&quot;&gt;//        100多万行&lt;/span&gt;&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;[aLock unlock]; &lt;span class=&quot;comment&quot;&gt;// 看到这儿的时候早忘了和哪个lock对应着了&lt;/span&gt;&lt;/span&gt;&lt;br&gt;&lt;/pre&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/figure&gt;
-&lt;p&gt;用了&lt;code&gt;onExit&lt;/code&gt;之后，代码更集中了：&lt;/p&gt;
-&lt;figure class=&quot;highlight objc&quot;&gt;&lt;table&gt;&lt;tr&gt;&lt;td class=&quot;gutter&quot;&gt;&lt;pre&gt;&lt;span class=&quot;line&quot;&gt;1&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;2&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;3&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;4&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;5&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;6&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;7&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;8&lt;/span&gt;&lt;br&gt;&lt;/pre&gt;&lt;/td&gt;&lt;td class=&quot;code&quot;&gt;&lt;pre&gt;&lt;span class=&quot;line&quot;&gt;&lt;span class=&quot;built_in&quot;&gt;NSRecursiveLock&lt;/span&gt; *aLock = [[&lt;span class=&quot;built_in&quot;&gt;NSRecursiveLock&lt;/span&gt; alloc] init];&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;[aLock lock];&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;onExit &amp;#123;&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;    [aLock unlock]; &lt;span class=&quot;comment&quot;&gt;// 妈妈再也不用担心我忘写后半段了&lt;/span&gt;&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;&amp;#125;;&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;&lt;span class=&quot;comment&quot;&gt;// 这里&lt;/span&gt;&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;&lt;span class=&quot;comment&quot;&gt;//    爱多少行&lt;/span&gt;&lt;/span&gt;&lt;br&gt;&lt;span class=&quot;line&quot;&gt;&lt;span class=&quot;comment&quot;&gt;//           就多少行&lt;/span&gt;&lt;/span&gt;&lt;br&gt;&lt;/pre&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/figure&gt;
-&lt;p&gt;还是那句老话：剩下的就全靠想象力了。&lt;/p&gt;
-</content>
-    
-    <summary type="html">
-    
-      &lt;p&gt;编译器属性&lt;code&gt;__attribute__&lt;/code&gt;用于向编译器描述特殊的标识、检查或优化，几个常用的用法看&lt;a href=&quot;http://nshipster.com/__attribute__/&quot; target=&quot;_blank&quot; rel=&quot;external&quot;&gt;《
-    
-    </summary>
-    
-    
-      <category term="objc的秘密" scheme="http://blog.sunnyxx.com/tags/objc%E7%9A%84%E7%A7%98%E5%AF%86/"/>
     
   </entry>
   
